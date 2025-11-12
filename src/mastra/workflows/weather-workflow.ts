@@ -40,17 +40,13 @@ const fetchWeather = createStep({
   }),
   outputSchema: forecastSchema,
   execute: async ({ inputData }) => {
-    if (!inputData) {
-      throw new Error('Input data not found');
-    }
-
     const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(inputData.city)}&count=1`;
     const geocodingResponse = await fetch(geocodingUrl);
     const geocodingData = (await geocodingResponse.json()) as {
       results: { latitude: number; longitude: number; name: string }[];
     };
 
-    if (!geocodingData.results?.[0]) {
+    if (geocodingData.results.length === 0) {
       throw new Error(`Location '${inputData.city}' not found`);
     }
 
@@ -77,7 +73,7 @@ const fetchWeather = createStep({
       condition: getWeatherCondition(data.current.weathercode),
       precipitationChance: data.hourly.precipitation_probability.reduce(
         (acc, curr) => Math.max(acc, curr),
-        0,
+        0
       ),
       location: name,
     };
@@ -96,14 +92,7 @@ const planActivities = createStep({
   execute: async ({ inputData, mastra }) => {
     const forecast = inputData;
 
-    if (!forecast) {
-      throw new Error('Forecast data not found');
-    }
-
-    const agent = mastra?.getAgent('weatherAgent');
-    if (!agent) {
-      throw new Error('Weather agent not found');
-    }
+    const agent = mastra.getAgent('weatherAgent');
 
     const prompt = `Based on the following weather forecast for ${forecast.location}, suggest appropriate activities:
       ${JSON.stringify(forecast, null, 2)}

@@ -1,0 +1,92 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read file_path; if echo \"$file_path\" | grep -qE '\\.(ts|tsx|js|jsx)$'; then npm run lint:fix && npm run format && npm run typecheck; fi; }"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(file:*)",
+      "Bash(stat:*)",
+      "Bash(pwd:*)",
+      "Bash(which:*)",
+      "Bash(type:*)",
+      "Bash(echo:*)",
+      "Bash(diff:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(cut:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)",
+      "Bash(test:*)",
+      "Bash([:*)",
+      "Bash(jq:*)",
+      "Bash(tree:*)",
+      "Bash(du:*)",
+      "Bash(df:*)",
+      "Bash(whoami:*)",
+      "Bash(date:*)",
+      "Bash(basename:*)",
+      "Bash(dirname:*)",
+      "Bash(readlink:*)",
+      "Bash(realpath:*)",
+      "Bash(printenv:*)",
+      "Bash(env:*)",
+      "Bash(uname:*)",
+      "Bash(hostname:*)",
+      "Bash(uptime:*)",
+      "Bash(w:*)",
+      "Bash(who:*)",
+      "Bash(id:*)",
+      "Bash(groups:*)",
+      "Bash(less:*)",
+      "Bash(more:*)",
+      "Bash(hexdump:*)",
+      "Bash(xxd:*)",
+      "Bash(strings:*)",
+      "Bash(md5:*)",
+      "Bash(md5sum:*)",
+      "Bash(sha1sum:*)",
+      "Bash(sha256sum:*)",
+      "Bash(shasum:*)",
+      "Bash(od:*)",
+      "Bash(nl:*)",
+      "Bash(pr:*)",
+      "Bash(column:*)",
+      "Bash(comm:*)",
+      "Bash(cmp:*)",
+      "Bash(tee:*)",
+      "Bash(xargs:*)",
+      "Bash(parallel:*)",
+      "Bash(seq:*)",
+      "Bash(bc:*)",
+      "Bash(expr:*)",
+      "Bash(locale:*)",
+      "Bash(getconf:*)",
+      "Bash(whereis:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run lint:fix:*)",
+      "Bash(npm run format:*)",
+      "Bash(npm run format:check:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

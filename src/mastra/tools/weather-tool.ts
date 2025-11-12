@@ -45,7 +45,7 @@ const getWeather = async (location: string) => {
   const geocodingResponse = await fetch(geocodingUrl);
   const geocodingData = (await geocodingResponse.json()) as GeocodingResponse;
 
-  if (!geocodingData.results?.[0]) {
+  if (geocodingData.results.length === 0) {
     throw new Error(`Location '${location}' not found`);
   }
 
