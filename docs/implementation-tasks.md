@@ -9,7 +9,6 @@
 | @mastra/core | 0.24.0 | 2025-11-11 | suspend/resume fixes, workflow input preservation |
 | @slack/bolt | 4.5.0 | 2025-10 | AI features, Socket Mode/Events API両対応 |
 | @mastra/libsql | 0.16.1 | 2025-04 | SQLite storage for development |
-| @mastra/pg | 0.16.1 | 2025-04 | PostgreSQL storage for production |
 | node-cron | 4.2.1 | 2025-07 | 定期ジョブ実行 |
 | zod | 3.23.x | latest | Schema validation |
 | @types/node | 18.x | latest | Node.js 18+ types |
@@ -103,7 +102,6 @@ README.md
   "dependencies": {
     "@mastra/core": "^0.24.0",
     "@mastra/libsql": "^0.16.1",
-    "@mastra/pg": "^0.16.1",
     "@slack/bolt": "^4.5.0",
     "node-cron": "^4.2.1",
     "zod": "^3.23.0",
@@ -200,7 +198,7 @@ SLACK_APP_TOKEN=xapp-xxx
 SLACK_BOT_TOKEN=xoxb-xxx
 SLACK_SIGNING_SECRET=xxx
 
-# Database（開発: LibSQL）
+# Database（開発: SQLite/LibSQL）
 DATABASE_URL=file:./data/mastra.db
 
 # LLM API
@@ -219,8 +217,8 @@ SLACK_BOT_TOKEN=xoxb-xxx
 SLACK_SIGNING_SECRET=xxx
 PORT=3000
 
-# Database（本番: PostgreSQL）
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
+# Database（本番: SQLite/LibSQL）
+DATABASE_URL=file:/var/lib/mastra/mastra.db
 
 # LLM API
 OPENAI_API_KEY=sk-xxx
@@ -282,38 +280,22 @@ CREATE INDEX IF NOT EXISTS idx_slack_metadata_channel ON slack_metadata(channel_
 **Estimated Complexity**: Medium
 
 **Description**:
-LibSQL/PostgreSQL両対応のデータベースクライアント実装
+SQLite（LibSQL）専用のデータベースクライアント実装
 
 ```typescript
 // src/db/client.ts
 import { createSQLiteStorage } from '@mastra/libsql';
-import { createPostgresStorage } from '@mastra/pg';
 import { SLACK_METADATA_SCHEMA } from './schema';
 
 export const initDatabase = async () => {
-  const isDev = process.env.NODE_ENV === 'development';
+  const storage = createSQLiteStorage({
+    url: process.env.DATABASE_URL || 'file:./data/mastra.db',
+  });
 
-  if (isDev) {
-    // 開発環境: LibSQL
-    const storage = createSQLiteStorage({
-      url: process.env.DATABASE_URL || 'file:./data/mastra.db',
-    });
+  // スキーマ初期化
+  await storage.execute(SLACK_METADATA_SCHEMA);
 
-    // スキーマ初期化
-    await storage.execute(SLACK_METADATA_SCHEMA);
-
-    return storage;
-  } else {
-    // 本番環境: PostgreSQL
-    const storage = createPostgresStorage({
-      connectionString: process.env.DATABASE_URL!,
-    });
-
-    // スキーマ初期化
-    await storage.execute(SLACK_METADATA_SCHEMA);
-
-    return storage;
-  }
+  return storage;
 };
 
 export interface SlackMetadata {
@@ -382,8 +364,8 @@ export class SlackMetadataRepository {
 ```
 
 **Acceptance Criteria**:
-- [ ] LibSQL/PostgreSQL両方で動作する
-- [ ] 環境変数でストレージタイプを切り替え可能
+- [ ] SQLite（LibSQL）で動作する
+- [ ] `DATABASE_URL` でファイルパスを切り替え可能
 - [ ] テーブルが自動作成される
 - [ ] CRUD操作が正しく動作する
 - [ ] 型安全なRepository実装
@@ -1618,7 +1600,7 @@ main();
 - Cloudflare Workersデプロイ手順
 - AWS Lambdaデプロイ手順
 - 環境変数設定
-- PostgreSQL接続設定
+- SQLiteストレージ設定（LibSQL）
 
 **Acceptance Criteria**:
 - [ ] 各プラットフォームのデプロイ手順が記載されている
@@ -1726,9 +1708,9 @@ main();
    - **Future**: 外部cronサービス（GitHub Actions等）への移行
 
 2. **データベース接続**
-   - **Risk**: PostgreSQL接続エラー
-   - **Mitigation**: リトライロジックの実装（Task 1-2）
-   - **Monitoring**: 接続エラーをログ監視
+   - **Risk**: SQLiteファイルのロック競合やI/Oエラー
+   - **Mitigation**: リトライロジックの実装（Task 1-2）とDBファイルの永続ストレージ配置
+   - **Monitoring**: エラーをログ監視し、ディスク使用量を定期チェック
 
 ### スコープリスク
 
