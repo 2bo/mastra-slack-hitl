@@ -13,6 +13,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: true,
+        project: ['./tsconfig.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -44,6 +45,7 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-unnecessary-condition': 'warn',
       '@typescript-eslint/no-non-null-assertion': 'warn',
+      '@typescript-eslint/require-await': 'off',
     },
   },
   {

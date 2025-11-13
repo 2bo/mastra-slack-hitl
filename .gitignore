@@ -1,8 +1,10 @@
 output.txt
-node_modules
-dist
-.mastra
-.env.development
+node_modules/
+dist/
+.mastra/
+data/mastra.db
 .env
+.env.*
+!.env*.example
 *.db
 *.db-*
