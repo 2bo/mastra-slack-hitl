@@ -268,9 +268,9 @@ CREATE INDEX IF NOT EXISTS idx_slack_metadata_channel ON slack_metadata(channel_
 ```
 
 **Acceptance Criteria**:
-- [ ] スキーマ定義が設計書と一致している
-- [ ] インデックスが適切に設定されている
-- [ ] run_idがPRIMARY KEYとして定義されている
+- [x] スキーマ定義が設計書と一致している
+- [x] インデックスが適切に設定されている
+- [x] run_idがPRIMARY KEYとして定義されている
 
 ---
 
@@ -364,11 +364,11 @@ export class SlackMetadataRepository {
 ```
 
 **Acceptance Criteria**:
-- [ ] SQLite（LibSQL）で動作する
-- [ ] `DATABASE_URL` でファイルパスを切り替え可能
-- [ ] テーブルが自動作成される
-- [ ] CRUD操作が正しく動作する
-- [ ] 型安全なRepository実装
+- [x] SQLite（LibSQL）で動作する
+- [x] `DATABASE_URL` でファイルパスを切り替え可能
+- [x] テーブルが自動作成される
+- [x] CRUD操作が正しく動作する
+- [x] 型安全なRepository実装
 
 ---
 

@@ -17,9 +17,9 @@
     "format:check": "prettier --check \"src/**/*.ts\""
   },
   "dependencies": {
+    "@libsql/client": "^0.15.15",
     "@mastra/core": "^0.24.0",
     "@mastra/libsql": "^0.16.1",
-    "@mastra/pg": "^0.16.1",
     "@slack/bolt": "^4.5.0",
     "dotenv": "^16.4.5",
     "node-cron": "^4.2.1",
