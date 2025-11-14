@@ -14,7 +14,9 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\""
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit push"
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
@@ -22,6 +24,7 @@
     "@mastra/libsql": "^0.16.1",
     "@slack/bolt": "^4.5.0",
     "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.44.7",
     "node-cron": "^4.2.1",
     "pino": "^9.0.0",
     "pino-pretty": "^11.0.0",
@@ -33,6 +36,7 @@
     "@types/node-cron": "^3.0.11",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "drizzle-kit": "^0.31.7",
     "eslint": "^8.57.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-prettier": "^5.1.0",

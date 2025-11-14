@@ -238,7 +238,7 @@ LOG_LEVEL=info
 
 ---
 
-## Phase 1: データベース層
+## Phase 1: データベース層（Drizzle ORM）
 
 ### Task 1-1: データベーススキーマ定義
 **Priority**: P0 (Blocker)
@@ -246,31 +246,38 @@ LOG_LEVEL=info
 **Estimated Complexity**: Low
 
 **Description**:
-`src/db/schema.ts` にslack_metadataテーブルのスキーマを定義
+Drizzle ORM の schema builder を利用し、Slack メタデータ用テーブルとインデックスを型安全に定義する。
 
 ```typescript
 // src/db/schema.ts
-export const SLACK_METADATA_SCHEMA = `
-CREATE TABLE IF NOT EXISTS slack_metadata (
-  run_id TEXT PRIMARY KEY,        -- Mastra workflow run ID
-  channel_id TEXT NOT NULL,       -- Slackチャンネル
-  message_ts TEXT,                -- 方針投稿のタイムスタンプ
-  thread_ts TEXT,                 -- スレッドTS（あれば）
-  requester TEXT NOT NULL,        -- 依頼者のSlack User ID
-  deadline_at INTEGER NOT NULL,   -- 承認期限（Unix timestamp）
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+export const slackMetadata = sqliteTable(
+  'slack_metadata',
+  {
+    runId: text('run_id').primaryKey(),
+    channelId: text('channel_id').notNull(),
+    messageTs: text('message_ts'),
+    threadTs: text('thread_ts'),
+    requester: text('requester').notNull(),
+    deadlineAt: integer('deadline_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => ({
+    deadlineIdx: index('idx_slack_metadata_deadline').on(table.deadlineAt),
+    channelIdx: index('idx_slack_metadata_channel').on(table.channelId),
+  }),
 );
 
-CREATE INDEX IF NOT EXISTS idx_slack_metadata_deadline ON slack_metadata(deadline_at);
-CREATE INDEX IF NOT EXISTS idx_slack_metadata_channel ON slack_metadata(channel_id);
-`;
+export type SlackMetadataSelect = typeof slackMetadata.$inferSelect;
+export type SlackMetadataInsert = typeof slackMetadata.$inferInsert;
 ```
 
 **Acceptance Criteria**:
-- [x] スキーマ定義が設計書と一致している
-- [x] インデックスが適切に設定されている
-- [x] run_idがPRIMARY KEYとして定義されている
+- [x] Drizzle ORM で schema と index が宣言されている
+- [x] `$inferSelect` / `$inferInsert` 型がエクスポートされ、Repository から利用できる
+- [x] 旧来の raw SQL 文字列は廃止している
 
 ---
 
@@ -280,95 +287,70 @@ CREATE INDEX IF NOT EXISTS idx_slack_metadata_channel ON slack_metadata(channel_
 **Estimated Complexity**: Medium
 
 **Description**:
-SQLite（LibSQL）専用のデータベースクライアント実装
+Drizzle ORM + LibSQL ドライバでクライアントを構築し、`drizzle-kit` のマイグレーションを適用する。Repository 層はすべて Drizzle の query builder を用いる。
 
 ```typescript
 // src/db/client.ts
-import { createSQLiteStorage } from '@mastra/libsql';
-import { SLACK_METADATA_SCHEMA } from './schema';
+import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
+import { migrate } from 'drizzle-orm/libsql/migrator';
+import { eq, lt } from 'drizzle-orm';
+import { slackMetadata, SlackMetadataInsert } from './schema';
 
-export const initDatabase = async () => {
-  const storage = createSQLiteStorage({
-    url: process.env.DATABASE_URL || 'file:./data/mastra.db',
+export type SQLiteDb = ReturnType<typeof drizzle>;
+
+export const initDatabase = async (): Promise<SQLiteDb> => {
+  const client = createClient({
+    url: process.env.DATABASE_URL ?? 'file:./data/mastra.db',
+    authToken: process.env.LIBSQL_AUTH_TOKEN,
   });
 
-  // スキーマ初期化
-  await storage.execute(SLACK_METADATA_SCHEMA);
-
-  return storage;
+  const db = drizzle(client, { schema: { slackMetadata } });
+  await migrate(db, { migrationsFolder: 'drizzle' });
+  return db;
 };
 
-export interface SlackMetadata {
-  run_id: string;
-  channel_id: string;
-  message_ts?: string;
-  thread_ts?: string;
-  requester: string;
-  deadline_at: number;
-  created_at: number;
-  updated_at: number;
-}
-
 export class SlackMetadataRepository {
-  constructor(private storage: any) {}
+  constructor(private readonly db: SQLiteDb) {}
 
-  async create(data: Omit<SlackMetadata, 'created_at' | 'updated_at'>): Promise<void> {
+  async create(data: SlackMetadataInsert) {
     const now = Date.now();
-    await this.storage.execute({
-      sql: `
-        INSERT INTO slack_metadata
-        (run_id, channel_id, message_ts, thread_ts, requester, deadline_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      args: [
-        data.run_id,
-        data.channel_id,
-        data.message_ts || null,
-        data.thread_ts || null,
-        data.requester,
-        data.deadline_at,
-        now,
-        now,
-      ],
+    await this.db.insert(slackMetadata).values({ ...data, createdAt: now, updatedAt: now });
+  }
+
+  async updateMessageTs(runId: string, messageTs: string) {
+    await this.db
+      .update(slackMetadata)
+      .set({ messageTs, updatedAt: Date.now() })
+      .where(eq(slackMetadata.runId, runId));
+  }
+
+  async getByRunId(runId: string) {
+    return this.db.query.slackMetadata.findFirst({
+      where: (table, { eq }) => eq(table.runId, runId),
     });
   }
 
-  async updateMessageTs(runId: string, messageTs: string): Promise<void> {
-    await this.storage.execute({
-      sql: `UPDATE slack_metadata SET message_ts = ?, updated_at = ? WHERE run_id = ?`,
-      args: [messageTs, Date.now(), runId],
-    });
-  }
-
-  async getByRunId(runId: string): Promise<SlackMetadata | null> {
-    const result = await this.storage.query({
-      sql: `SELECT * FROM slack_metadata WHERE run_id = ?`,
-      args: [runId],
-    });
-
-    return result.rows[0] || null;
-  }
-
-  async getExpiredApprovals(now: number): Promise<SlackMetadata[]> {
-    const result = await this.storage.query({
-      sql: `
-        SELECT * FROM slack_metadata
-        WHERE deadline_at < ?
-      `,
-      args: [now],
-    });
-
-    return result.rows;
+  async getExpiredApprovals(now = Date.now()) {
+    return this.db
+      .select()
+      .from(slackMetadata)
+      .where(lt(slackMetadata.deadlineAt, now))
+      .orderBy(slackMetadata.deadlineAt);
   }
 }
 ```
 
+セットアップ要件:
+- `drizzle-orm`, `drizzle-kit`, `@libsql/client` を `package.json` に追加
+- `drizzle.config.ts` を作成し、`schema`/`out` パスを定義
+- npm scripts 例: `"db:generate": "drizzle-kit generate:sqlite --config drizzle.config.ts"`, `"db:migrate": "drizzle-kit push --config drizzle.config.ts"`
+
 **Acceptance Criteria**:
-- [x] SQLite（LibSQL）で動作する
-- [x] `DATABASE_URL` でファイルパスを切り替え可能
-- [x] テーブルが自動作成される
-- [x] CRUD操作が正しく動作する
-- [x] 型安全なRepository実装
+- [x] Drizzle + LibSQL クライアントが `initDatabase` で返却される
+- [x] マイグレーションが `migrate()` で自動適用される
+- [x] Repository が Drizzle のクエリで CRUD を実装し、raw SQL を使っていない
+- [x] 型推論（`SlackMetadataInsert` など）が活用されている
 
 ---
 

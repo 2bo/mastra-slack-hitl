@@ -1,15 +1,22 @@
-export const SLACK_METADATA_SCHEMA = `
-CREATE TABLE IF NOT EXISTS slack_metadata (
-  run_id TEXT PRIMARY KEY,
-  channel_id TEXT NOT NULL,
-  message_ts TEXT,
-  thread_ts TEXT,
-  requester TEXT NOT NULL,
-  deadline_at INTEGER NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+export const slackMetadata = sqliteTable(
+  'slack_metadata',
+  {
+    runId: text('run_id').primaryKey(),
+    channelId: text('channel_id').notNull(),
+    messageTs: text('message_ts'),
+    threadTs: text('thread_ts'),
+    requester: text('requester').notNull(),
+    deadlineAt: integer('deadline_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => ({
+    deadlineIdx: index('idx_slack_metadata_deadline').on(table.deadlineAt),
+    channelIdx: index('idx_slack_metadata_channel').on(table.channelId),
+  }),
 );
 
-CREATE INDEX IF NOT EXISTS idx_slack_metadata_deadline ON slack_metadata(deadline_at);
-CREATE INDEX IF NOT EXISTS idx_slack_metadata_channel ON slack_metadata(channel_id);
-`;
+export type SlackMetadataSelect = typeof slackMetadata.$inferSelect;
+export type SlackMetadataInsert = typeof slackMetadata.$inferInsert;
