@@ -37,13 +37,14 @@
       research-agent.ts
       report-agent.ts
     /tools
-      web-search-tool.ts
       evaluate-result-tool.ts
     /workflows
       research-workflow.ts
       deliver-workflow.ts
       main-workflow.ts
     index.ts
+  /mcp
+    tavily-client.ts
   /slack
     bolt-app.ts
     /handlers
@@ -204,8 +205,8 @@ DATABASE_URL=file:./data/mastra.db
 # LLM API
 OPENAI_API_KEY=sk-xxx
 
-# Search API
-EXA_API_KEY=xxx
+# Tavily MCP
+TAVILY_API_KEY=tvly-xxx
 
 # Logging
 LOG_LEVEL=debug
@@ -223,8 +224,8 @@ DATABASE_URL=file:/var/lib/mastra/mastra.db
 # LLM API
 OPENAI_API_KEY=sk-xxx
 
-# Search API
-EXA_API_KEY=xxx
+# Tavily MCP
+TAVILY_API_KEY=tvly-xxx
 
 # Logging
 LOG_LEVEL=info
@@ -398,10 +399,10 @@ export const getMastra = async () => {
 ```
 
 **Acceptance Criteria**:
-- [ ] Mastraインスタンスが正しく初期化される
-- [ ] ストレージが設定されている
-- [ ] AI Tracingが有効化されている
-- [ ] シングルトンパターンで実装されている
+- [x] Mastraインスタンスが正しく初期化される
+- [x] ストレージが設定されている
+- [x] AI Tracingが有効化されている
+- [x] シングルトンパターンで実装されている
 
 ---
 
@@ -413,24 +414,31 @@ export const getMastra = async () => {
 **Description**:
 ```typescript
 // src/mastra/agents/research-agent.ts
-import { createAgent } from '@mastra/core/agents';
-import { webSearchTool } from '../tools/web-search-tool';
-import { evaluateResultTool } from '../tools/evaluate-result-tool';
+import { Agent } from '@mastra/core/agent';
 
-export const researchAgent = createAgent({
+import { evaluateResultTool } from '../tools/evaluate-result-tool';
+import { tavilyMcpClient } from '../../mcp/tavily-client';
+
+const tavilyTools = await tavilyMcpClient.getTools();
+
+export const researchAgent = new Agent({
   id: 'research-agent',
   name: 'Research Agent',
   description: 'Deep research agent for planning and executing research tasks',
-  model: {
-    provider: 'OPEN_AI',
-    name: 'gpt-4o',
+  model: 'openai/gpt-4o',
+  defaultStreamOptions: {
+    toolChoice: 'none',
+    temperature: 0.2,
+  },
+  defaultGenerateOptions: {
     toolChoice: 'auto',
+    temperature: 0.4,
   },
   instructions: `You are a research agent that helps users conduct deep research.
 
 Your responsibilities:
 1. Create detailed research plans with clear objectives, scope, hypotheses, and methodology
-2. Execute web searches to gather information
+2. Execute Tavily MCP search results to gather information
 3. Evaluate and synthesize findings
 4. Maintain high quality standards throughout the research process
 
@@ -440,15 +448,18 @@ When creating a research plan, include:
 - Key hypotheses to test
 - Research methodology
 - Expected deliverables`,
-  tools: [webSearchTool, evaluateResultTool],
+  tools: {
+    ...tavilyTools, // e.g. tavily.search
+    'evaluate-result': evaluateResultTool,
+  },
 });
 ```
 
 **Acceptance Criteria**:
-- [ ] エージェントが正しく定義されている
-- [ ] GPT-4oモデルを使用している
-- [ ] ツールが適切に設定されている
-- [ ] インストラクションが明確である
+- [x] エージェントが正しく定義されている
+- [x] GPT-4oモデルを使用している
+- [x] Tavily MCPツール + evaluate-resultツールを組み合わせて登録している
+- [x] インストラクションが明確である
 
 ---
 
@@ -497,69 +508,65 @@ Report structure:
 ```
 
 **Acceptance Criteria**:
-- [ ] エージェントが正しく定義されている
-- [ ] インストラクションがレポート生成に最適化されている
+- [x] エージェントが正しく定義されている
+- [x] インストラクションがレポート生成に最適化されている
 
 ---
 
-### Task 2-4: Web Search Tool実装
+### Task 2-4: Tavily MCP統合
 **Priority**: P0 (Blocker)
 **Dependencies**: Task 2-2
 **Estimated Complexity**: Medium
 
 **Description**:
+1. Tavily MCP クライアントを作成し、Mastra プロセス内でサーバーを起動できるようにする。
 ```typescript
-// src/mastra/tools/web-search-tool.ts
-import { createTool } from '@mastra/core/tools';
-import { z } from 'zod';
+// src/mcp/tavily-client.ts
+import { MCPClient } from '@mastra/mcp';
 
-export const webSearchTool = createTool({
-  id: 'web-search',
-  name: 'Web Search',
-  description: 'Search the web for information using Exa API',
-  inputSchema: z.object({
-    query: z.string().describe('Search query'),
-    numResults: z.number().default(5).describe('Number of results to return'),
-  }),
-  outputSchema: z.object({
-    results: z.array(z.object({
-      title: z.string(),
-      url: z.string(),
-      snippet: z.string(),
-    })),
-  }),
-  execute: async ({ input }) => {
-    const response = await fetch('https://api.exa.ai/search', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.EXA_API_KEY!,
+export const tavilyMcpClient = new MCPClient({
+  id: 'tavily-mcp',
+  servers: {
+    tavily: {
+      command: 'npx',
+      args: ['-y', 'tavily-mcp'],
+      env: {
+        ...process.env,
+        TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? '',
       },
-      body: JSON.stringify({
-        query: input.query,
-        numResults: input.numResults,
-        useAutoprompt: true,
-      }),
-    });
-
-    const data = await response.json();
-
-    return {
-      results: data.results.map((r: any) => ({
-        title: r.title,
-        url: r.url,
-        snippet: r.snippet || '',
-      })),
-    };
+      timeout: 60_000,
+    },
   },
 });
 ```
+   - 依存追加: `@mastra/mcp`, `tavily-mcp`
+   - `TAVILY_API_KEY` が未設定の場合は即座にエラーを投げ、起動時に気付けるようにする
+
+2. Research Agent で MCP ツールを直接ロードする。
+```typescript
+// src/mastra/agents/research-agent.ts
+import { Agent } from '@mastra/core/agent';
+
+import { evaluateResultTool } from '../tools/evaluate-result-tool';
+import { tavilyMcpClient } from '../../mcp/tavily-client';
+
+const tavilyTools = await tavilyMcpClient.getTools();
+
+export const researchAgent = new Agent({
+  id: 'research-agent',
+  // ...
+  tools: {
+    ...tavilyTools, // exposes tavily.search
+    'evaluate-result': evaluateResultTool,
+  },
+});
+```
+   - Static構成の場合は起動時に `getTools()` をawaitして登録。ユーザー毎に切り替える必要があれば `getToolsets()` を使い、`researchAgent.generate(..., { toolsets })` で渡す運用に拡張する。
 
 **Acceptance Criteria**:
-- [ ] Exa API統合が動作する
-- [ ] 検索結果が正しく返される
-- [ ] エラーハンドリングが実装されている
-- [ ] Zodスキーマが適切に定義されている
+- [x] Tavily MCP を `MCPClient` で管理し、`TAVILY_API_KEY` を使って起動している
+- [x] `research-agent` に `tavily.search` が直接登録されており、追加の `createTool` は不要
+- [x] 依存パッケージが `package.json` に追記され、README/環境変数サンプルで `TAVILY_API_KEY` を案内している
 
 ---
 
@@ -614,10 +621,10 @@ Include:
 ```
 
 **Acceptance Criteria**:
-- [ ] エージェントのストリーミング機能が動作する
-- [ ] custom eventが正しく送信される
-- [ ] 完全な調査方針が生成される
-- [ ] エラーハンドリングが実装されている
+- [x] エージェントのストリーミング機能が動作する
+- [x] custom eventが正しく送信される
+- [x] 完全な調査方針が生成される
+- [x] エラーハンドリングが実装されている
 
 ---
 
@@ -671,10 +678,10 @@ export const approvalStep = createStep({
 ```
 
 **Acceptance Criteria**:
-- [ ] suspend()が正しく動作する
-- [ ] resume()で承認/差戻しができる
-- [ ] suspendPayloadが正しく保存される
-- [ ] @mastra/core@0.24.0の修正を活用している
+- [x] suspend()が正しく動作する
+- [x] resume()で承認/差戻しができる
+- [x] suspendPayloadが正しく保存される
+- [x] @mastra/core@0.24.0の修正を活用している
 
 ---
 
@@ -711,10 +718,10 @@ export const gatherStep = createStep({
 
 ${inputData.plan}
 
-Conduct thorough web searches, evaluate sources, and gather comprehensive information.`,
+Conduct thorough Tavily MCP searches, evaluate sources, and gather comprehensive information.`,
       {
         maxSteps: 10,
-        tools: ['web-search', 'evaluate-result'],
+        tools: ['tavily.search', 'evaluate-result'],
         onStepFinish: async (step) => {
           // 進捗をSlackに配信
           await writer?.write({
@@ -737,11 +744,11 @@ Conduct thorough web searches, evaluate sources, and gather comprehensive inform
 ```
 
 **Acceptance Criteria**:
-- [ ] 承認後のみ実行される
-- [ ] 差戻し時はエラーを投げる
-- [ ] Web検索が実行される
-- [ ] 進捗がストリーミングされる
-- [ ] maxStepsで無限ループを防止している
+- [x] 承認後のみ実行される
+- [x] 差戻し時はエラーを投げる
+- [x] Tavily MCP検索が実行される
+- [x] 進捗がストリーミングされる
+- [x] maxStepsで無限ループを防止している
 
 ---
 
@@ -785,9 +792,9 @@ Follow the standard report structure with:
 ```
 
 **Acceptance Criteria**:
-- [ ] レポートエージェントが動作する
-- [ ] 構造化されたレポートが生成される
-- [ ] 研究データが正しく引用される
+- [x] レポートエージェントが動作する
+- [x] 構造化されたレポートが生成される
+- [x] 研究データが正しく引用される
 
 ---
 
@@ -822,9 +829,9 @@ export const researchWorkflow = createWorkflow({
 ```
 
 **Acceptance Criteria**:
-- [ ] ステップが正しい順序で実行される
-- [ ] planStep → approvalStep → gatherStepの順
-- [ ] 差戻し時はgatherStepに進まない
+- [x] ステップが正しい順序で実行される
+- [x] planStep → approvalStep → gatherStepの順
+- [x] 差戻し時はgatherStepに進まない
 
 ---
 
@@ -854,8 +861,8 @@ export const deliverWorkflow = createWorkflow({
 ```
 
 **Acceptance Criteria**:
-- [ ] レポート生成が正しく動作する
-- [ ] ワークフローが正常に完了する
+- [x] レポート生成が正しく動作する
+- [x] ワークフローが正常に完了する
 
 ---
 
@@ -890,9 +897,9 @@ export const mainWorkflow = createWorkflow({
 ```
 
 **Acceptance Criteria**:
-- [ ] ネストされたワークフローが正しく動作する
-- [ ] researchWorkflow → deliverWorkflowの順で実行される
-- [ ] 差戻し時はdeliverWorkflowに進まない
+- [x] ネストされたワークフローが正しく動作する
+- [x] researchWorkflow → deliverWorkflowの順で実行される
+- [x] 差戻し時はdeliverWorkflowに進まない
 
 ---
 

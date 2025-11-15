@@ -7,7 +7,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "mastra dev --root . --dir src/mastra",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
@@ -22,12 +22,14 @@
     "@libsql/client": "^0.15.15",
     "@mastra/core": "^0.24.0",
     "@mastra/libsql": "^0.16.1",
+    "@mastra/mcp": "^0.14.2",
     "@slack/bolt": "^4.5.0",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.44.7",
     "node-cron": "^4.2.1",
     "pino": "^9.0.0",
     "pino-pretty": "^11.0.0",
+    "tavily-mcp": "^0.2.10",
     "zod": "^3.23.0"
   },
   "devDependencies": {

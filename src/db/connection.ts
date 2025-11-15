@@ -3,7 +3,6 @@ import { dirname, resolve } from 'node:path';
 
 import { createClient, type Client } from '@libsql/client';
 import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql';
-import { migrate } from 'drizzle-orm/libsql/migrator';
 
 import { slackMetadata } from './schema';
 
@@ -29,8 +28,6 @@ export const initDatabase = async (): Promise<DatabaseConnections> => {
   }
 
   const db = drizzle(client, { schema });
-  await migrate(db, { migrationsFolder: 'drizzle' });
-
   return { client, db };
 };
 
