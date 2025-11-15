@@ -2,16 +2,89 @@ import { createStep } from '@mastra/core/workflows';
 
 import { deliverStepOutputSchema, gatherStepOutputSchema } from './schemas';
 
-const buildReportPrompt = (
-  researchText: string,
-  sources: any[],
-) => `Slack用の最終的な調査レポートを生成してください。
+interface ResearchSource {
+  title?: string;
+  name?: string;
+  url?: string;
+  uri?: string;
+}
+
+interface ResearchDataShape {
+  text?: string;
+  sources?: ResearchSource[];
+}
+
+interface AgentGenerateTextResult {
+  text?: string;
+  steps?: unknown[];
+  error?: unknown;
+  finishReason?: unknown;
+  reasoning?: unknown;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const stringifyUnknown = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+const normalizeResearchData = (raw: unknown): Required<ResearchDataShape> => {
+  if (isRecord(raw)) {
+    const text = typeof raw.text === 'string' && raw.text.trim().length > 0 ? raw.text : stringifyUnknown(raw);
+    const sources = Array.isArray(raw.sources)
+      ? raw.sources.filter((item): item is ResearchSource => isRecord(item))
+      : [];
+    return { text, sources };
+  }
+
+  if (typeof raw === 'string' && raw.trim().length > 0) {
+    return { text: raw, sources: [] };
+  }
+
+  return { text: stringifyUnknown(raw), sources: [] };
+};
+
+const normalizeAgentResult = (raw: unknown): AgentGenerateTextResult => {
+  if (typeof raw === 'string') {
+    return { text: raw };
+  }
+  if (isRecord(raw)) {
+    const normalized: AgentGenerateTextResult = {};
+    if (typeof raw.text === 'string') {
+      normalized.text = raw.text;
+    }
+    if (Array.isArray(raw.steps)) {
+      normalized.steps = raw.steps;
+    }
+    if ('error' in raw) {
+      normalized.error = raw.error;
+    }
+    if ('finishReason' in raw) {
+      normalized.finishReason = raw.finishReason;
+    }
+    if ('reasoning' in raw) {
+      normalized.reasoning = raw.reasoning;
+    }
+    return normalized;
+  }
+  return {};
+};
+
+const buildReportPrompt = (researchText: string, sources: ResearchSource[]) => `Slack用の最終的な調査レポートを生成してください。
 
 調査結果:
 ${researchText}
 
 情報源:
-${sources.map((s, i) => `${i + 1}. ${s.title || s.name || 'Unknown'} - ${s.url || s.uri || 'No URL'}`).join('\n')}
+${sources.length > 0 ? sources.map((source, index) => `${index + 1}. ${source.title ?? source.name ?? 'Unknown'} - ${source.url ?? source.uri ?? 'No URL'}`).join('\n') : '1. 情報源なし'}
 
 以下の構造に正確に従ったレポートを作成してください:
 ## エグゼクティブサマリー
@@ -41,9 +114,7 @@ export const generateReportStep = createStep({
   execute: async ({ inputData, mastra }) => {
     const reportAgent = mastra.getAgent('report-agent');
 
-    // researchDataからテキストとsourcesを抽出
-    const researchText = (inputData.researchData)?.text || '';
-    const sources = (inputData.researchData)?.sources || [];
+    const { text: researchText, sources } = normalizeResearchData(inputData.researchData as ResearchDataShape);
     const prompt = buildReportPrompt(researchText, sources);
 
     // デバッグ: 入力データの確認
@@ -53,43 +124,47 @@ export const generateReportStep = createStep({
     console.log('[DEBUG] sources count:', sources.length);
     console.log('[DEBUG] Prompt length:', prompt.length);
 
-    const result = await reportAgent.generate(prompt);
+    const rawResult = await reportAgent.generate(prompt);
+    const result = normalizeAgentResult(rawResult);
 
     // デバッグ: 結果の詳細確認
-    console.log('[DEBUG] Result keys:', Object.keys(result || {}));
+    console.log('[DEBUG] Result keys:', isRecord(rawResult) ? Object.keys(rawResult) : `raw-result-type:${typeof rawResult}`);
     console.log('[DEBUG] result.text:', result.text);
     console.log('[DEBUG] result.text type:', typeof result.text);
-    console.log('[DEBUG] result.text length:', result.text.length || 0);
+    console.log('[DEBUG] result.text length:', result.text?.length ?? 0);
     console.log('[DEBUG] result.error:', result.error);
     console.log('[DEBUG] result.finishReason:', result.finishReason);
-    console.log('[DEBUG] result.steps length:', result.steps.length || 0);
+    console.log('[DEBUG] result.steps length:', result.steps?.length ?? 0);
 
     if (result.error) {
       console.error('[ERROR] Model returned error:', result.error);
     }
 
-    if (result.steps && result.steps.length > 0) {
-      console.log('[DEBUG] Last step:', JSON.stringify(result.steps[result.steps.length - 1]));
+    if (Array.isArray(result.steps) && result.steps.length > 0) {
+      console.log('[DEBUG] Last step:', stringifyUnknown(result.steps[result.steps.length - 1]));
     }
 
     if (result.reasoning) {
       console.log('[DEBUG] result.reasoning:', result.reasoning);
     }
 
-    const text = result.text;
-
-    if (!text || text.trim() === '') {
+    const text = result.text?.trim();
+    if (!text) {
       console.error('[ERROR] Empty result.text');
-      console.error('[ERROR] Full result:', JSON.stringify(result, null, 2));
+      console.error('[ERROR] Full result:', stringifyUnknown(rawResult));
+      const finishReason =
+        typeof result.finishReason === 'string' && result.finishReason.trim().length > 0
+          ? result.finishReason
+          : 'none';
       throw new Error(
         `Report agent returned empty text. ` +
-          `Error: ${result.error || 'none'}, ` +
-          `Finish reason: ${result.finishReason || 'none'}, ` +
-          `Steps: ${result.steps.length || 0}`,
+          `Error: ${result.error ? stringifyUnknown(result.error) : 'none'}, ` +
+          `Finish reason: ${finishReason}, ` +
+          `Steps: ${result.steps?.length ?? 0}`,
       );
     }
 
     console.log('[DEBUG] Successfully generated report, length:', text.length);
-    return { ...inputData, report: text.trim() };
+    return { ...inputData, report: text };
   },
 });
