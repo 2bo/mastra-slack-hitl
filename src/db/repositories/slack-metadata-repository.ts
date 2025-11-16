@@ -38,6 +38,7 @@ export class SlackMetadataRepository {
         ...data,
         messageTs: data.messageTs ?? null,
         threadTs: data.threadTs ?? null,
+        approvalMessageTs: data.approvalMessageTs ?? null,
         createdAt: now,
         updatedAt: now,
       }),
@@ -58,6 +59,15 @@ export class SlackMetadataRepository {
       this.db
         .update(slackMetadata)
         .set({ threadTs, updatedAt: Date.now() })
+        .where(eq(slackMetadata.runId, runId)),
+    );
+  }
+
+  async updateApprovalMessageTs(runId: string, approvalMessageTs: string): Promise<void> {
+    await this.executeWithRetry(() =>
+      this.db
+        .update(slackMetadata)
+        .set({ approvalMessageTs, updatedAt: Date.now() })
         .where(eq(slackMetadata.runId, runId)),
     );
   }

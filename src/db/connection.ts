@@ -17,18 +17,32 @@ export interface DatabaseConnections {
   db: SQLiteDb;
 }
 
+let cachedConnections: DatabaseConnections | null = null;
+let initializingPromise: Promise<DatabaseConnections> | null = null;
+
 export const initDatabase = async (): Promise<DatabaseConnections> => {
-  const config = buildConnectionConfig();
-  ensureFileDirectory(config.url);
-
-  const client = createClient(config);
-
-  if (isLocalDatabase(config.url)) {
-    await applyPragmas(client);
+  if (cachedConnections) {
+    return cachedConnections;
   }
 
-  const db = drizzle(client, { schema });
-  return { client, db };
+  if (!initializingPromise) {
+    initializingPromise = (async () => {
+      const config = buildConnectionConfig();
+      ensureFileDirectory(config.url);
+
+      const client = createClient(config);
+
+      if (isLocalDatabase(config.url)) {
+        await applyPragmas(client);
+      }
+
+      const db = drizzle(client, { schema });
+      cachedConnections = { client, db };
+      return cachedConnections;
+    })();
+  }
+
+  return initializingPromise;
 };
 
 const buildConnectionConfig = () => {

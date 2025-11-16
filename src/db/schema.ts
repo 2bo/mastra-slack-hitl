@@ -7,6 +7,7 @@ export const slackMetadata = sqliteTable(
     channelId: text('channel_id').notNull(),
     messageTs: text('message_ts'),
     threadTs: text('thread_ts'),
+    approvalMessageTs: text('approval_message_ts'),
     requester: text('requester').notNull(),
     deadlineAt: integer('deadline_at').notNull(),
     createdAt: integer('created_at').notNull(),
