@@ -1365,10 +1365,10 @@ export const logger = pino({
 ```
 
 **Acceptance Criteria**:
-- [ ] 構造化ログが出力される
-- [ ] 開発時はpretty-printされる
-- [ ] 本番時はJSON形式で出力される
-- [ ] ログレベルが環境変数で設定可能
+- [x] 構造化ログが出力される
+- [x] 開発時はpretty-printされる
+- [x] 本番時はJSON形式で出力される
+- [x] ログレベルが環境変数で設定可能
 
 ---
 
@@ -1391,9 +1391,9 @@ process.on('uncaughtException', (error) => {
 ```
 
 **Acceptance Criteria**:
-- [ ] unhandledRejectionがログ出力される
-- [ ] uncaughtExceptionで適切に終了する
-- [ ] エラー情報が詳細にログ出力される
+- [x] unhandledRejectionがログ出力される
+- [x] uncaughtExceptionで適切に終了する
+- [x] エラー情報が詳細にログ出力される
 
 ---
 
