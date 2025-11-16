@@ -6,6 +6,23 @@ import { getMastra } from '../../mastra';
 import { streamWorkflow } from './streaming-handler';
 import { getChatStreamClient, type SlackClientWithChat } from '../utils/chat-stream';
 import { logger } from '../../logger';
+import { buildApprovalStatusBlocks } from '../blocks/approval-blocks';
+
+const formatSlackDateToken = (unixSeconds: number, label: string) =>
+  `<!date^${unixSeconds}^${label}: {date_short} {time_secs}|${label}>`;
+
+const buildStatusText = (options: {
+  emoji: string;
+  userId: string;
+  verb: string;
+  dateLabel: string;
+  tail?: string;
+}) => {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const humanizedDate = formatSlackDateToken(timestamp, options.dateLabel);
+  const tail = options.tail ? `\n${options.tail}` : '';
+  return `${options.emoji} <@${options.userId}> が${options.verb}（${humanizedDate}）${tail}`;
+};
 
 export const handleApproveAction = async ({
   ack,
@@ -34,11 +51,19 @@ export const handleApproveAction = async ({
     const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow;
     const run = await workflow.createRunAsync({ runId });
 
+    const approvalStatusText = buildStatusText({
+      emoji: '✅',
+      userId: body.user.id,
+      verb: '承認しました',
+      dateLabel: '承認',
+      tail: '本調査を開始します...',
+    });
+
     await chat.update({
       channel: metadata.channelId,
       ts: approvalMessageTs,
       text: '✅ 承認されました。本調査を開始します...',
-      blocks: [],
+      blocks: buildApprovalStatusBlocks(approvalStatusText),
     });
 
     const streamResponse = await chat.startStream({
@@ -116,11 +141,19 @@ export const handleRejectAction = async ({
     const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow;
     const run = await workflow.createRunAsync({ runId });
 
+    const rejectionStatusText = buildStatusText({
+      emoji: '❌',
+      userId: body.user.id,
+      verb: '差し戻しました',
+      dateLabel: '差し戻し',
+      tail: '調査は中止されました。',
+    });
+
     await chat.update({
       channel: metadata.channelId,
       ts: approvalMessageTs,
       text: '❌ 差し戻されました。調査は中止されました。',
-      blocks: [],
+      blocks: buildApprovalStatusBlocks(rejectionStatusText),
     });
 
     const approvalStepPath = 'research-workflow.approval-step';
