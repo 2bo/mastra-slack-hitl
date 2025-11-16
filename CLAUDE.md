@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## プロジェクト概要
 
-Slackから実行できるAI調査ワークフローシステム。AIが生成した調査計画を人間が承認した後、深い調査を実行し、進捗とレポートをリアルタイムでSlackにストリーミング配信する**Human-In-The-Loop (HITL)** システム。
+Slackから実行できるAI調査ワークフローシステム。AIが生成した調査計画を人間が承認した後、深い調査を実行し、進捗とレポートをリアルタイムでSlackにストリーミング配信する**Human-In-The-Loop (HITL)** システム。調査結果に対するフィードバック収集機能も実装。
 
 ## 開発コマンド
 
@@ -92,22 +92,46 @@ return { approved, approver, reason };
 
 #### 4. データベース層 (`src/db/`)
 
-**Drizzle ORM + LibSQL**を使用:
+**Drizzle ORM + LibSQL**を使用。3つのテーブルで関心を分離:
 
 ```typescript
 // スキーマ定義（schema.ts）
+// 1. Slackメタデータ（メッセージTS、承認期限など）
 export const slackMetadata = sqliteTable('slack_metadata', {
   runId: text('run_id').primaryKey(),
   channelId: text('channel_id').notNull(),
-  messageTs: text('message_ts'),      // 親メッセージTS
-  threadTs: text('thread_ts'),        // ストリーミングメッセージTS
+  messageTs: text('message_ts'),              // 親メッセージTS
+  threadTs: text('thread_ts'),                // ストリーミングメッセージTS
+  approvalMessageTs: text('approval_message_ts'), // 承認メッセージTS
   requester: text('requester').notNull(),
   deadlineAt: integer('deadline_at').notNull(),
   // ...
 });
+
+// 2. 調査実行内容（クエリ、計画、レポート）
+export const slackResearchRuns = sqliteTable('slack_research_runs', {
+  runId: text('run_id').primaryKey().references(() => slackMetadata.runId),
+  query: text('query'),
+  plan: text('plan'),
+  report: text('report'),
+  // ...
+});
+
+// 3. フィードバック
+export const slackFeedbacks = sqliteTable('slack_feedbacks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  runId: text('run_id').notNull().references(() => slackResearchRuns.runId),
+  feedbackType: text('feedback_type', { enum: ['positive', 'negative'] }).notNull(),
+  userId: text('user_id').notNull(),
+  messageTs: text('message_ts'),
+  // ...
+});
 ```
 
-**重要**: `messageTs`（親）と`threadTs`（ストリーミング）を区別すること。
+**重要**:
+- `messageTs`（親）と`threadTs`（ストリーミング）を区別すること
+- すべてのテーブルに`slack_*`プレフィックスを付け、Mastraテーブル（`mastra_*`）と分離
+- drizzle.config.tsで`tablesFilter: ['slack_*']`を使用してMastraテーブルに影響を与えない
 
 #### 5. エージェント (`src/mastra/agents/`)
 
@@ -127,9 +151,9 @@ tools: { ...tavilyTools, 'evaluate-result': evaluateResultTool }
 1. /research コマンド受信
    ↓
 2. mainWorkflow.createRunAsync() でワークフロー開始
-   ↓
+   ↓ (queryをslack_research_runsに保存)
 3. planStep: 調査計画生成（ストリーミング）
-   ↓
+   ↓ (planをslack_research_runsに保存)
 4. approvalStep: suspend() で一時停止 → Slackに承認ボタン表示
    ↓
 5. ユーザーがボタンクリック → resume() で再開
@@ -137,8 +161,12 @@ tools: { ...tavilyTools, 'evaluate-result': evaluateResultTool }
 6. gatherStep: Tavily検索で情報収集
    ↓
 7. generateReportStep: レポート生成
+   ↓ (reportをslack_research_runsに保存)
+8. Slackにレポート投稿 + フィードバックボタン表示
    ↓
-8. Slackにレポート投稿
+9. ユーザーがフィードバックボタンをクリック
+   ↓ (feedbackをslack_feedbacksに保存)
+10. 完了
 ```
 
 ### イベント駆動設計
@@ -193,13 +221,28 @@ export type SlackClientWithChat = WebClient & {
 
 ### 4. リポジトリパターン
 
-`SlackMetadataRepository`でデータアクセスを抽象化:
+3つのリポジトリでデータアクセスを抽象化:
 
 ```typescript
-await repo.create({ runId, channelId, requester, deadlineAt });
-await repo.updateMessageTs(runId, messageTs);
-await repo.getExpiredApprovals(now);
+// SlackMetadataRepository: Slackメタデータ管理
+const metadataRepo = await getSlackMetadataRepository();
+await metadataRepo.create({ runId, channelId, requester, deadlineAt });
+await metadataRepo.updateMessageTs(runId, messageTs);
+await metadataRepo.getExpiredApprovals(now);
+
+// ResearchRunsRepository: 調査内容管理
+const researchRepo = await getResearchRunsRepository();
+await researchRepo.create({ runId, query });
+await researchRepo.updatePlan(runId, plan);
+await researchRepo.updateReport(runId, report);
+
+// FeedbacksRepository: フィードバック管理
+const feedbackRepo = await getFeedbacksRepository();
+await feedbackRepo.create({ runId, feedbackType: 'positive', userId });
+await feedbackRepo.getByRunId(runId);
 ```
+
+すべてのリポジトリでSQLiteのロック競合に対応するリトライロジックを実装。
 
 ## 環境変数
 
@@ -307,6 +350,31 @@ export const handleNewCommand = async ({ command, ack, client }) => { ... };
 
 // 2. index.ts で登録
 app.command('/new-command', handleNewCommand);
+```
+
+### 新しいSlackアクション追加時
+
+```typescript
+// 1. blocks/内にBlock Kit定義作成
+export const buildNewActionBlocks = (runId: string) => [
+  {
+    type: 'actions',
+    elements: [
+      {
+        type: 'button',
+        action_id: 'new_action',
+        text: { type: 'plain_text', text: 'アクション' },
+        value: runId,
+      },
+    ],
+  },
+];
+
+// 2. handlers/action-handler.ts にハンドラ追加
+export const handleNewAction = async ({ ack, body, client }) => { ... };
+
+// 3. index.ts で登録
+app.action('new_action', handleNewAction);
 ```
 
 ## パフォーマンス最適化
