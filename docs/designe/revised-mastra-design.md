@@ -177,8 +177,8 @@ Slack → Slack App（Socket Mode [開発] / Events API [本番]）→ Mastra Wo
       └─ gatherStep
           │
           ▼
-       [Web Search]
-       (Exa API等)
+       [MCP Search]
+       (Tavily API経由)
 
 [Persistence Layer]
   ├─ workflow_snapshots (Mastra managed, LibSQL/Postgres)
@@ -586,12 +586,12 @@ const gatherStep = createStep({
 
     const researchAgent = mastra.getAgent('researchAgent');
 
-    // Web検索 + 分析
+    // Tavily MCP検索 + 分析
     const result = await researchAgent.generate(
       `Execute research based on plan: ${inputData.plan}`,
       {
         maxSteps: 10,
-        tools: ['webSearchTool', 'evaluateResultTool'],
+        tools: ['tavily.search', 'evaluateResultTool'],
       }
     );
 

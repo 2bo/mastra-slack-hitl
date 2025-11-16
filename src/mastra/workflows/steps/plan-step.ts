@@ -1,6 +1,7 @@
 import { createStep } from '@mastra/core/workflows';
 
 import { planStepInputSchema, planStepOutputSchema } from './schemas';
+import { logger } from '../../../logger';
 
 const PLAN_PROMPT_TEMPLATE = (query: string) => `あなたはHITLワークフローのリサーチリーダーです。
 
@@ -44,6 +45,7 @@ export const planStep = createStep({
 
     let plan = '';
     try {
+      logger.info({ query: inputData.query }, 'Plan step started');
       const stream = await researchAgent.stream(prompt);
       for await (const chunk of stream.textStream) {
         plan += chunk;
@@ -51,6 +53,7 @@ export const planStep = createStep({
           type: 'plan-chunk',
           chunk,
         });
+        logger.debug({ chunkLength: chunk.length }, 'Plan chunk emitted');
       }
     } catch (error) {
       const message =
@@ -59,6 +62,7 @@ export const planStep = createStep({
         type: 'plan-error',
         message,
       });
+      logger.error({ err: error }, 'Plan step failed');
       throw error;
     }
 
@@ -68,6 +72,7 @@ export const planStep = createStep({
       type: 'plan-complete',
       plan: normalizedPlan,
     });
+    logger.info({ planLength: normalizedPlan.length }, 'Plan step completed');
 
     return { ...inputData, plan: normalizedPlan };
   },

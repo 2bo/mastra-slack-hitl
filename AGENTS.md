@@ -43,16 +43,16 @@ Mastra × Slack HITL Deep Research MVP におけるエージェントの仕様�
 | Provider / Model | `OPEN_AI` / `gpt-4o` |
 | toolChoice | `auto` |
 | Plan生成 | `temperature 0.2`, `maxTokens 2000` |
-| Gather | `temperature 0.4`, `maxSteps 10`, `tools: ['web-search', 'evaluate-result']` |
+| Gather | `temperature 0.4`, `maxSteps 10`, `tools: ['tavily.search', 'evaluate-result']` |
 
 **ツール定義**
 
 | Tool ID | 目的 | 入力 | 出力 | 実装 |
 | --- | --- | --- | --- | --- |
-| `web-search` | Exa APIで関連ソース取得 | `{ query: string, numResults?: number }` | `results: { title, url, snippet }[]` | `src/mastra/tools/web-search-tool.ts` |
+| `tavily.search` | Tavily MCPサーバー経由で関連ソース取得 | `{ query: string, numResults?: number }` | `results: { title, url, snippet }[]` | MCPサーバー `tavily-mcp` |
 | `evaluate-result` | 取得情報の信頼度/関連度評価 | `{ finding, sourceUrl, query, criteria? }` | `{ verdict, confidence, rationale }` | `src/mastra/tools/evaluate-result-tool.ts` |
 
-※ `EXA_API_KEY` が必須。ツールのエラーは `writer?.write({ type: 'plan-error' | 'gather-progress' })` 等で可視化。
+※ `TAVILY_API_KEY` が必須。ツールのエラーは `writer?.write({ type: 'plan-error' | 'gather-progress' })` 等で可視化。
 
 ### 3.3 インターフェース
 
@@ -126,7 +126,7 @@ Mastra × Slack HITL Deep Research MVP におけるエージェントの仕様�
 ## 5. エージェント間ハンドオフ
 1. `plan-step`: research-agent が Plan を生成 → Slack streaming → `artifacts(kind='plan')`
 2. `approval-step`: Slackボタンで HITL → `resume()` → Workflow state更新
-3. `gather-step`: 承認済みPlanで research-agent が `web-search` + `evaluate-result` を駆動 → `researchData`
+3. `gather-step`: 承認済みPlanで research-agent が `tavily.search` + `evaluate-result` を駆動 → `researchData`
 4. `generate-report-step`: report-agent が `researchData` を Markdown レポート化
 5. `deliverWorkflow`: Slackへ最終投稿、`artifacts(kind='report')` 保存、`events` に `deliver-posted`
 
@@ -134,7 +134,7 @@ Mastra × Slack HITL Deep Research MVP におけるエージェントの仕様�
 
 ## 6. 実装タスクとの対応
 - **Task 2-2 / 2-3**: エージェント本体（本書セクション3/4の仕様をそのままコードへ）。
-- **Task 2-4**: `web-search` & `evaluate-result` ツール実装（セクション3.2参照）。
+- **Task 2-4**: `tavily.search` (MCP) & `evaluate-result` ツール連携（セクション3.2参照）。
 - **Task 2-5〜2-8**: Plan / Approval / Gather / Report 各ステップでエージェントを呼び出し、`writer` イベントをSlackへ送る。
 - **Task 3-2 / 3-3**: Slack側ハンドラが `plan-chunk` や `gather-progress` をストリーム表示。
 

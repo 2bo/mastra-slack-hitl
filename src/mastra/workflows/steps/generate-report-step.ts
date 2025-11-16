@@ -38,7 +38,8 @@ const stringifyUnknown = (value: unknown): string => {
 
 const normalizeResearchData = (raw: unknown): Required<ResearchDataShape> => {
   if (isRecord(raw)) {
-    const text = typeof raw.text === 'string' && raw.text.trim().length > 0 ? raw.text : stringifyUnknown(raw);
+    const text =
+      typeof raw.text === 'string' && raw.text.trim().length > 0 ? raw.text : stringifyUnknown(raw);
     const sources = Array.isArray(raw.sources)
       ? raw.sources.filter((item): item is ResearchSource => isRecord(item))
       : [];
@@ -78,7 +79,10 @@ const normalizeAgentResult = (raw: unknown): AgentGenerateTextResult => {
   return {};
 };
 
-const buildReportPrompt = (researchText: string, sources: ResearchSource[]) => `Slack用の最終的な調査レポートを生成してください。
+const buildReportPrompt = (
+  researchText: string,
+  sources: ResearchSource[],
+) => `Slack用の最終的な調査レポートを生成してください。
 
 調査結果:
 ${researchText}
@@ -114,7 +118,9 @@ export const generateReportStep = createStep({
   execute: async ({ inputData, mastra }) => {
     const reportAgent = mastra.getAgent('report-agent');
 
-    const { text: researchText, sources } = normalizeResearchData(inputData.researchData as ResearchDataShape);
+    const { text: researchText, sources } = normalizeResearchData(
+      inputData.researchData as ResearchDataShape,
+    );
     const prompt = buildReportPrompt(researchText, sources);
 
     // デバッグ: 入力データの確認
@@ -128,7 +134,10 @@ export const generateReportStep = createStep({
     const result = normalizeAgentResult(rawResult);
 
     // デバッグ: 結果の詳細確認
-    console.log('[DEBUG] Result keys:', isRecord(rawResult) ? Object.keys(rawResult) : `raw-result-type:${typeof rawResult}`);
+    console.log(
+      '[DEBUG] Result keys:',
+      isRecord(rawResult) ? Object.keys(rawResult) : `raw-result-type:${typeof rawResult}`,
+    );
     console.log('[DEBUG] result.text:', result.text);
     console.log('[DEBUG] result.text type:', typeof result.text);
     console.log('[DEBUG] result.text length:', result.text?.length ?? 0);

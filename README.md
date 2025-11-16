@@ -34,8 +34,12 @@ Additional docs describing the implementation roadmap live in `docs/designe/init
 1. Copy the sample env files and fill in your credentials:
    - `cp .env.development.example .env.development`
    - `cp .env.production.example .env.production`
+   - Minimum required values: Slack tokens (`SLACK_APP_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`), `OPENAI_API_KEY`, SQLite `DATABASE_URL`, and the Tavily MCP key `TAVILY_API_KEY`.
 2. Install dependencies with `pnpm install` (recommended).
 3. Run `pnpm run typecheck`, `pnpm run lint`, and `pnpm run format:check` to validate the workspace scaffold.
-4. Start development with `pnpm dev` once the Mastra + Slack wiring is implemented.
+4. Apply the latest DB migrations once via `pnpm db:migrate` (this keeps the SQLite schema in sync with Drizzle).
+5. Start Mastra Studio locally with `pnpm run dev`. The CLI launches the Mastra playground + REST server at http://localhost:4111/ so you can poke at the research agents/workflows even before the Slack wiring is finished.
+   - Boot only the Slack Bolt watcher with `pnpm run dev:slack` when you want to test `/research` streaming or approval actions.
+   - If your environment is missing the `mastra` CLI, install it once via `pnpm add -D mastra` (or run `pnpm dlx mastra dev`).
 
 The actual Mastra workflow logic, Slack handlers, and database integrations will be implemented task by task following `docs/implementation-tasks.md`.

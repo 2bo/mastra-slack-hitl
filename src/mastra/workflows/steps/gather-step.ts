@@ -1,6 +1,7 @@
 import { createStep } from '@mastra/core/workflows';
 
 import { approvalStepOutputSchema, gatherStepOutputSchema } from './schemas';
+import { logger } from '../../../logger';
 
 const buildGatherPrompt = (plan: string) => `以下の承認された調査計画を実行してください。
 
@@ -38,6 +39,7 @@ export const gatherStep = createStep({
     const prompt = buildGatherPrompt(inputData.plan);
 
     try {
+      logger.info('Gather step started');
       const result = await researchAgent.generate(prompt, {
         maxSteps: 10,
         onStepFinish: async (step) => {
@@ -68,6 +70,7 @@ export const gatherStep = createStep({
             message: `Step update: ${toolLabel}`,
             details: detailText,
           });
+          logger.debug({ toolLabel }, 'Gather step progress emitted');
         },
       });
 
@@ -75,6 +78,7 @@ export const gatherStep = createStep({
         type: 'gather-complete',
         message: 'Research data gathering completed',
       });
+      logger.info('Gather step completed');
 
       return { ...inputData, researchData: result };
     } catch (error) {
@@ -83,6 +87,7 @@ export const gatherStep = createStep({
         type: 'gather-progress',
         message: `Gather step failed: ${message}`,
       });
+      logger.error({ err: error }, 'Gather step failed');
       throw error;
     }
   },
