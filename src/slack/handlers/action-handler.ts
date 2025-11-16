@@ -1,7 +1,7 @@
 import type { BlockAction, SlackActionMiddlewareArgs } from '@slack/bolt';
 import type { Workflow } from '@mastra/core/workflows';
 
-import { getSlackMetadataRepository } from '../../db/client';
+import { getSlackMetadataRepository, getFeedbacksRepository } from '../../db/client';
 import { getMastra } from '../../mastra';
 import { streamWorkflow } from './streaming-handler';
 import { getChatStreamClient, type SlackClientWithChat } from '../utils/chat-stream';
@@ -186,6 +186,66 @@ export const handleRejectAction = async ({
         channel,
         user: body.user.id,
         text: `❌ 差し戻し処理に失敗しました: ${error.message}`,
+      });
+    }
+  }
+};
+
+export const handleFeedbackAction = async ({
+  ack,
+  body,
+  client,
+}: SlackActionMiddlewareArgs<BlockAction> & { client: SlackClientWithChat }) => {
+  await ack();
+  const chat = getChatStreamClient(client);
+
+  try {
+    const action = body.actions[0];
+    if (action.type !== 'feedback_buttons') {
+      throw new Error('Invalid action type');
+    }
+
+    // FeedbackButtonsActionの型定義に従い、valueプロパティから値を取得
+    // 型定義: node_modules/@slack/bolt/dist/types/actions/block-action.d.ts:35-38
+    // interface FeedbackButtonsAction extends BasicElementAction<'feedback_buttons'> {
+    //   value: string;
+    //   text: PlainTextElement;
+    // }
+    const buttonValue = 'value' in action && typeof action.value === 'string' ? action.value : '';
+    const [feedbackType, runId] = buttonValue.split('_');
+
+    if (!runId || (feedbackType !== 'positive' && feedbackType !== 'negative')) {
+      throw new Error('Invalid feedback value format');
+    }
+
+    logger.info({ runId, userId: body.user.id, feedbackType }, 'Feedback button clicked');
+
+    const feedbackRepo = await getFeedbacksRepository();
+    await feedbackRepo.create({
+      runId,
+      feedbackType: feedbackType,
+      userId: body.user.id,
+      messageTs: body.message?.ts,
+    });
+
+    // フィードバック受信確認メッセージ
+    const emoji = feedbackType === 'positive' ? '👍' : '👎';
+    await chat.postEphemeral({
+      channel: body.channel?.id ?? '',
+      user: body.user.id,
+      text: `${emoji} フィードバックありがとうございました！`,
+    });
+
+    logger.info({ runId, feedbackType }, 'Feedback saved successfully');
+  } catch (unknownError) {
+    const error = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    logger.error({ err: error }, 'Failed to process feedback action');
+    const channel = body.channel?.id;
+    if (channel) {
+      await chat.postEphemeral({
+        channel,
+        user: body.user.id,
+        text: `❌ フィードバックの保存に失敗しました: ${error.message}`,
       });
     }
   }

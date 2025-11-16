@@ -1,6 +1,6 @@
 import type { SlackCommandMiddlewareArgs } from '@slack/bolt';
 
-import { getSlackMetadataRepository } from '../../db/client';
+import { getSlackMetadataRepository, getResearchRunsRepository } from '../../db/client';
 import { getMastra } from '../../mastra';
 import { streamWorkflow, type SlackWorkflowInput } from './streaming-handler';
 import { getChatStreamClient, type SlackClientWithChat } from '../utils/chat-stream';
@@ -42,6 +42,13 @@ export const handleResearchCommand = async ({
       channelId,
       requester: userId,
       deadlineAt: Date.now() + 24 * 60 * 60 * 1000,
+    });
+
+    // 調査内容をDBに保存
+    const researchRepo = await getResearchRunsRepository();
+    await researchRepo.create({
+      runId: run.runId,
+      query,
     });
 
     const parentMessage = await chat.postMessage({

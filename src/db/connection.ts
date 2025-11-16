@@ -4,11 +4,11 @@ import { dirname, resolve } from 'node:path';
 import { createClient, type Client } from '@libsql/client';
 import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql';
 
-import { slackMetadata } from './schema';
+import { slackMetadata, slackResearchRuns, slackFeedbacks } from './schema';
 
 const DEFAULT_DB_URL = 'file:./data/mastra.db';
 
-const schema = { slackMetadata };
+const schema = { slackMetadata, slackResearchRuns, slackFeedbacks };
 
 export type SQLiteDb = LibSQLDatabase<typeof schema>;
 

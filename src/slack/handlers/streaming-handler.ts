@@ -1,12 +1,14 @@
 import type { Workflow, WorkflowStepStatus, WorkflowStreamEvent } from '@mastra/core/workflows';
 
 import type { SlackMetadataRepository } from '../../db/client';
+import { getResearchRunsRepository } from '../../db/client';
 import {
   getChatStreamClient,
   type SlackChatStreamClient,
   type SlackClientWithChat,
 } from '../utils/chat-stream';
 import { APPROVAL_PROMPT_TEXT, buildApprovalRequestBlocks } from '../blocks/approval-blocks';
+import { buildFeedbackBlocks, FEEDBACK_PROMPT_TEXT } from '../blocks/feedback-blocks';
 import { logger } from '../../logger';
 
 type WorkflowRunInstance = Awaited<ReturnType<Workflow['createRunAsync']>>;
@@ -279,6 +281,14 @@ export const streamWorkflow = async (
                 hasStreamedPlanChunks = true;
                 logger.warn({ runId: run.runId }, 'Plan draft streamed via fallback payload');
               }
+              // 計画をDBに保存
+              try {
+                const researchRepo = await getResearchRunsRepository();
+                await researchRepo.updatePlan(run.runId, writerPayload.plan);
+                logger.debug({ runId: run.runId }, 'Plan saved to database');
+              } catch (dbError) {
+                logger.error({ err: dbError, runId: run.runId }, 'Failed to save plan to database');
+              }
             }
             await appendToStream('\n\n✅ 調査方針のドラフトが完成しました。');
             break;
@@ -294,6 +304,19 @@ export const streamWorkflow = async (
             }
             break;
           case 'report-complete':
+            // レポートをDBに保存
+            if (typeof writerPayload.report === 'string') {
+              try {
+                const researchRepo = await getResearchRunsRepository();
+                await researchRepo.updateReport(run.runId, writerPayload.report);
+                logger.debug({ runId: run.runId }, 'Report saved to database');
+              } catch (dbError) {
+                logger.error(
+                  { err: dbError, runId: run.runId },
+                  'Failed to save report to database',
+                );
+              }
+            }
             await appendToStream('\n\n✅ レポート生成が完了しました。');
             break;
           default:
@@ -362,7 +385,19 @@ export const streamWorkflow = async (
         return;
       }
 
-      // レポートは既にストリーミングで送信済み
+      // レポート完了後、フィードバックボタンを投稿
+      try {
+        await chat.postMessage({
+          channel: channelId,
+          thread_ts: parentTs,
+          blocks: buildFeedbackBlocks(run.runId),
+          text: FEEDBACK_PROMPT_TEXT,
+        });
+        logger.info({ runId: run.runId }, 'Posted feedback buttons');
+      } catch (feedbackError) {
+        logger.error({ err: feedbackError, runId: run.runId }, 'Failed to post feedback buttons');
+      }
+
       logger.info({ runId: run.runId }, 'Workflow completed successfully');
       return;
     }

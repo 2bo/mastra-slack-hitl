@@ -4,7 +4,11 @@ import { initMastra } from './mastra';
 import { logger } from './logger';
 import { startDeadlineChecker } from './jobs/deadline-checker';
 import { initSlackApp, startSlackApp } from './slack/bolt-app';
-import { handleApproveAction, handleRejectAction } from './slack/handlers/action-handler';
+import {
+  handleApproveAction,
+  handleRejectAction,
+  handleFeedbackAction,
+} from './slack/handlers/action-handler';
 import { handleResearchCommand } from './slack/handlers/command-handler';
 
 const registerProcessErrorHandlers = () => {
@@ -23,6 +27,7 @@ const registerSlackHandlers = () => {
   app.command('/research', handleResearchCommand);
   app.action('approve', handleApproveAction);
   app.action('reject', handleRejectAction);
+  app.action('research_feedback', handleFeedbackAction);
   return app;
 };
 
