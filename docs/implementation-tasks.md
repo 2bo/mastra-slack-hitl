@@ -1328,12 +1328,12 @@ export const startDeadlineChecker = (slackClient: WebClient) => {
 ```
 
 **Acceptance Criteria**:
-- [ ] 15分毎に実行される
-- [ ] 期限切れの承認待ちを検出する
-- [ ] Slackに通知が送信される
-- [ ] Workflowが自動終了される
-- [ ] エラーハンドリングが実装されている
-- [ ] suspendedステータスの確認が行われる
+- [x] 15分毎に実行される
+- [x] 期限切れの承認待ちを検出する
+- [x] Slackに通知が送信される
+- [x] Workflowが自動終了される
+- [x] エラーハンドリングが実装されている
+- [x] suspendedステータスの確認が行われる
 
 ---
 
