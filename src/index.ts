@@ -1,8 +1,45 @@
 import 'dotenv/config';
 
-// Temporary bootstrap until the Slack+Mastra wiring is implemented.
+import { initMastra } from './mastra';
+import { logger } from './logger';
+import { startDeadlineChecker } from './jobs/deadline-checker';
+import { initSlackApp, startSlackApp } from './slack/bolt-app';
+import { handleApproveAction, handleRejectAction } from './slack/handlers/action-handler';
+import { handleResearchCommand } from './slack/handlers/command-handler';
+
+const registerProcessErrorHandlers = () => {
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error({ reason, promise }, 'Unhandled Rejection');
+  });
+
+  process.on('uncaughtException', (error) => {
+    logger.fatal({ error }, 'Uncaught Exception');
+    process.exit(1);
+  });
+};
+
+const registerSlackHandlers = () => {
+  const app = initSlackApp();
+  app.command('/research', handleResearchCommand);
+  app.action('approve', handleApproveAction);
+  app.action('reject', handleRejectAction);
+  return app;
+};
+
 async function main() {
-  console.log('Mastra Slack HITL scaffolding is in place.');
+  logger.info('Starting Mastra Slack HITL application...');
+  await initMastra();
+  const app = registerSlackHandlers();
+
+  await startSlackApp(app);
+  startDeadlineChecker(app.client);
+
+  logger.info('✅ Application started successfully');
 }
 
-void main();
+registerProcessErrorHandlers();
+
+main().catch((error) => {
+  logger.fatal({ error }, 'Failed to bootstrap application');
+  process.exit(1);
+});

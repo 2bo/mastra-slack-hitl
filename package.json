@@ -7,7 +7,8 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "dev": "mastra dev --root . --dir src/mastra",
+    "dev:mastra": "mastra dev --root . --dir src/mastra",
+    "dev:slack": "tsx watch --clear-screen=false src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
