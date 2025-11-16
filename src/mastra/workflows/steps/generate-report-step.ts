@@ -121,7 +121,8 @@ export const generateReportStep = createStep({
     };
 
     if (!inputData.approved) {
-      const cancellationMessage = '❌ 差し戻しのため調査を中止しました。承認後に再実行してください。';
+      const cancellationMessage =
+        '❌ 差し戻しのため調査を中止しました。承認後に再実行してください。';
       await emit({
         type: 'report-complete',
         report: cancellationMessage,

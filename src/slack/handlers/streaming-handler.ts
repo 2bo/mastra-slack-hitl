@@ -362,19 +362,7 @@ export const streamWorkflow = async (
         return;
       }
 
-      const reportText =
-        typeof workflowOutput.report === 'string'
-          ? workflowOutput.report
-          : 'レポート本文を取得できませんでした。';
-      const response = await chat.postMessage({
-        channel: channelId,
-        thread_ts: parentTs,
-        text: `📊 調査レポート完成\n\n${reportText}`,
-      });
-
-      if (response.ts) {
-        await repo.updateThreadTs(run.runId, response.ts);
-      }
+      // レポートは既にストリーミングで送信済み
       logger.info({ runId: run.runId }, 'Workflow completed successfully');
       return;
     }
