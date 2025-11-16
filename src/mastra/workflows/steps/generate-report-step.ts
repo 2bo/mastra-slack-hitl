@@ -115,7 +115,20 @@ export const generateReportStep = createStep({
   id: 'generate-report-step',
   inputSchema: gatherStepOutputSchema,
   outputSchema: deliverStepOutputSchema,
-  execute: async ({ inputData, mastra }) => {
+  execute: async ({ inputData, mastra, writer }) => {
+    const emit = async (payload: Record<string, unknown>) => {
+      await writer.write(payload);
+    };
+
+    if (!inputData.approved) {
+      const cancellationMessage = '❌ 差し戻しのため調査を中止しました。承認後に再実行してください。';
+      await emit({
+        type: 'report-complete',
+        report: cancellationMessage,
+      });
+      return { ...inputData, report: cancellationMessage };
+    }
+
     const reportAgent = mastra.getAgent('report-agent');
 
     const { text: researchText, sources } = normalizeResearchData(
@@ -130,50 +143,85 @@ export const generateReportStep = createStep({
     console.log('[DEBUG] sources count:', sources.length);
     console.log('[DEBUG] Prompt length:', prompt.length);
 
-    const rawResult = await reportAgent.generate(prompt);
-    const result = normalizeAgentResult(rawResult);
+    let streamedReport = '';
+    let chunkCount = 0;
+    try {
+      const stream = await reportAgent.stream(prompt);
+      console.log('[DEBUG] Report streaming started');
+      for await (const chunk of stream.textStream) {
+        chunkCount += 1;
+        streamedReport += chunk;
+        await emit({
+          type: 'report-chunk',
+          chunk,
+        });
+      }
 
-    // デバッグ: 結果の詳細確認
-    console.log(
-      '[DEBUG] Result keys:',
-      isRecord(rawResult) ? Object.keys(rawResult) : `raw-result-type:${typeof rawResult}`,
-    );
-    console.log('[DEBUG] result.text:', result.text);
-    console.log('[DEBUG] result.text type:', typeof result.text);
-    console.log('[DEBUG] result.text length:', result.text?.length ?? 0);
-    console.log('[DEBUG] result.error:', result.error);
-    console.log('[DEBUG] result.finishReason:', result.finishReason);
-    console.log('[DEBUG] result.steps length:', result.steps?.length ?? 0);
+      let rawResult: unknown = null;
+      try {
+        rawResult = await stream.getFullOutput();
+      } catch (metaError) {
+        console.warn('[WARN] Failed to read full report output:', metaError);
+      }
+      const result = normalizeAgentResult(rawResult ?? {});
 
-    if (result.error) {
-      console.error('[ERROR] Model returned error:', result.error);
-    }
-
-    if (Array.isArray(result.steps) && result.steps.length > 0) {
-      console.log('[DEBUG] Last step:', stringifyUnknown(result.steps[result.steps.length - 1]));
-    }
-
-    if (result.reasoning) {
-      console.log('[DEBUG] result.reasoning:', result.reasoning);
-    }
-
-    const text = result.text?.trim();
-    if (!text) {
-      console.error('[ERROR] Empty result.text');
-      console.error('[ERROR] Full result:', stringifyUnknown(rawResult));
-      const finishReason =
-        typeof result.finishReason === 'string' && result.finishReason.trim().length > 0
-          ? result.finishReason
-          : 'none';
-      throw new Error(
-        `Report agent returned empty text. ` +
-          `Error: ${result.error ? stringifyUnknown(result.error) : 'none'}, ` +
-          `Finish reason: ${finishReason}, ` +
-          `Steps: ${result.steps?.length ?? 0}`,
+      // デバッグ: 結果の詳細確認
+      console.log('[DEBUG] Stream chunk count:', chunkCount);
+      console.log(
+        '[DEBUG] Result keys:',
+        isRecord(rawResult) ? Object.keys(rawResult) : 'raw-result-unavailable',
       );
-    }
+      console.log('[DEBUG] result.text:', result.text);
+      console.log('[DEBUG] result.text type:', typeof result.text);
+      console.log('[DEBUG] result.text length:', result.text?.length ?? 0);
+      console.log('[DEBUG] result.error:', result.error);
+      console.log('[DEBUG] result.finishReason:', result.finishReason);
+      console.log('[DEBUG] result.steps length:', result.steps?.length ?? 0);
 
-    console.log('[DEBUG] Successfully generated report, length:', text.length);
-    return { ...inputData, report: text };
+      if (result.error) {
+        console.error('[ERROR] Model returned error:', result.error);
+      }
+
+      if (Array.isArray(result.steps) && result.steps.length > 0) {
+        console.log('[DEBUG] Last step:', stringifyUnknown(result.steps[result.steps.length - 1]));
+      }
+
+      if (result.reasoning) {
+        console.log('[DEBUG] result.reasoning:', result.reasoning);
+      }
+
+      let finalReport = streamedReport.trim();
+      if (!finalReport && result.text) {
+        finalReport = result.text.trim();
+      }
+
+      if (!finalReport) {
+        console.error('[ERROR] Empty report after streaming');
+        console.error('[ERROR] Full result:', stringifyUnknown(rawResult));
+        const finishReason =
+          typeof result.finishReason === 'string' && result.finishReason.trim().length > 0
+            ? result.finishReason
+            : 'none';
+        throw new Error(
+          `Report agent returned empty text after streaming. ` +
+            `Error: ${result.error ? stringifyUnknown(result.error) : 'none'}, ` +
+            `Finish reason: ${finishReason}, ` +
+            `Steps: ${result.steps?.length ?? 0}`,
+        );
+      }
+
+      await emit({
+        type: 'report-complete',
+        report: finalReport,
+      });
+      console.log('[DEBUG] Successfully streamed report, length:', finalReport.length);
+
+      return { ...inputData, report: finalReport };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown error while streaming report';
+      console.error('[ERROR] Report streaming failed:', message);
+      throw error;
+    }
   },
 });

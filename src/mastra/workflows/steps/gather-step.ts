@@ -27,12 +27,18 @@ export const gatherStep = createStep({
     };
 
     if (!inputData.approved) {
-      const message = 'Research was rejected - gather step will not run.';
+      const message = 'Research request was rejected before gather; skipping data collection.';
       await emit({
         type: 'gather-progress',
         message,
       });
-      throw new Error('Research was rejected - cannot proceed with gathering');
+      await emit({
+        type: 'gather-complete',
+        message: 'Gather step skipped due to rejection.',
+      });
+      logger.info('Gather step skipped because approval was rejected');
+
+      return { ...inputData, researchData: { status: 'skipped', reason: 'rejected' } };
     }
 
     const researchAgent = mastra.getAgent('research-agent');

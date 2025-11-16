@@ -69,7 +69,7 @@ Mastra × Slack HITL Deep Research MVP におけるエージェントの仕様�
 ### 3.5 HITLとデータ管理
 - `plan-step` 完了時に `artifacts(kind='plan')` へ保存、Slack message_ts と `request_id` を紐付け。
 - `suspend()` payload には `plan`, `requestedAt`, `resumeKey` を含め、再開時に `resume({ approved, approver, reason })`。
-- 承認拒否（`approved: false`）の場合は gather を実行せず workflow を `TERMINATED` へ。
+- 承認拒否（`approved: false`）の場合は gather/報告フェーズをスキップし、差し戻しメッセージを Slack スレッドへ返して正常終了扱いにする。
 
 ### 3.6 品質ガードレール
 - 低品質/古いソースは除外理由を明記、同一URLの再取得は禁止（`researchData.sources`で管理）。

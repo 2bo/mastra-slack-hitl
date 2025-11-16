@@ -6,6 +6,7 @@ import {
   type SlackChatStreamClient,
   type SlackClientWithChat,
 } from '../utils/chat-stream';
+import { APPROVAL_PROMPT_TEXT, buildApprovalRequestBlocks } from '../blocks/approval-blocks';
 import { logger } from '../../logger';
 
 type WorkflowRunInstance = Awaited<ReturnType<Workflow['createRunAsync']>>;
@@ -30,40 +31,56 @@ interface StreamWorkflowOptions {
   resume?: ResumeOptions;
 }
 
-interface WriterPayload {
+interface BaseWriterPayload {
   type: string;
   [key: string]: unknown;
 }
 
-const buildApprovalBlocks = (runId: string) => [
-  {
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: '📋 調査方針が生成されました。承認してください。',
-    },
-  },
-  {
-    type: 'actions',
-    block_id: `approval_${runId}`,
-    elements: [
-      {
-        type: 'button',
-        text: { type: 'plain_text', text: '✅ 承認して本調査を開始' },
-        style: 'primary',
-        action_id: 'approve',
-        value: runId,
-      },
-      {
-        type: 'button',
-        text: { type: 'plain_text', text: '❌ 差し戻し' },
-        style: 'danger',
-        action_id: 'reject',
-        value: runId,
-      },
-    ],
-  },
-];
+interface PlanChunkPayload extends BaseWriterPayload {
+  type: 'plan-chunk';
+  chunk?: unknown;
+}
+
+interface PlanErrorPayload extends BaseWriterPayload {
+  type: 'plan-error';
+  message?: unknown;
+}
+
+interface PlanCompletePayload extends BaseWriterPayload {
+  type: 'plan-complete';
+  plan?: unknown;
+}
+
+interface GatherProgressPayload extends BaseWriterPayload {
+  type: 'gather-progress';
+  message?: unknown;
+  details?: unknown;
+}
+
+interface GatherCompletePayload extends BaseWriterPayload {
+  type: 'gather-complete';
+  message?: unknown;
+}
+
+interface ReportChunkPayload extends BaseWriterPayload {
+  type: 'report-chunk';
+  chunk?: unknown;
+}
+
+interface ReportCompletePayload extends BaseWriterPayload {
+  type: 'report-complete';
+  report?: unknown;
+}
+
+type WriterPayload =
+  | PlanChunkPayload
+  | PlanErrorPayload
+  | PlanCompletePayload
+  | GatherProgressPayload
+  | GatherCompletePayload
+  | ReportChunkPayload
+  | ReportCompletePayload
+  | BaseWriterPayload;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
@@ -140,7 +157,7 @@ const postErrorToThread = async (
 
 interface WorkflowSuccessResult {
   status: 'success';
-  result: { report?: string };
+  result: { report?: string; approved?: boolean };
 }
 
 interface WorkflowFailedResult {
@@ -271,6 +288,14 @@ export const streamWorkflow = async (
           case 'gather-complete':
             await appendToStream('\n\n✅ 情報収集が完了しました。');
             break;
+          case 'report-chunk':
+            if (typeof writerPayload.chunk === 'string') {
+              await appendToStream(writerPayload.chunk);
+            }
+            break;
+          case 'report-complete':
+            await appendToStream('\n\n✅ レポート生成が完了しました。');
+            break;
           default:
             break;
         }
@@ -292,8 +317,8 @@ export const streamWorkflow = async (
           const approvalMessage = await chat.postMessage({
             channel: channelId,
             thread_ts: parentTs,
-            blocks: buildApprovalBlocks(run.runId),
-            text: '📋 調査方針が生成されました。承認してください。',
+            blocks: buildApprovalRequestBlocks(run.runId),
+            text: APPROVAL_PROMPT_TEXT,
           });
           if (approvalMessage.ts) {
             await repo.updateApprovalMessageTs(run.runId, approvalMessage.ts);
@@ -316,7 +341,27 @@ export const streamWorkflow = async (
 
     if (workflowResult.status === 'success') {
       await stopSlackStream();
-      const workflowOutput = workflowResult.result;
+      const workflowOutput = workflowResult.result ?? {};
+      const wasApproved =
+        typeof workflowOutput.approved === 'boolean' ? workflowOutput.approved : true;
+
+      if (!wasApproved) {
+        const cancellationText =
+          typeof workflowOutput.report === 'string' && workflowOutput.report.trim().length > 0
+            ? workflowOutput.report
+            : '❌ 差し戻しにより調査は実行されませんでした。';
+        const response = await chat.postMessage({
+          channel: channelId,
+          thread_ts: parentTs,
+          text: cancellationText,
+        });
+        if (response.ts) {
+          await repo.updateThreadTs(run.runId, response.ts);
+        }
+        logger.info({ runId: run.runId }, 'Workflow cancelled after rejection');
+        return;
+      }
+
       const reportText =
         typeof workflowOutput.report === 'string'
           ? workflowOutput.report
