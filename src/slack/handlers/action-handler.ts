@@ -1,2 +1,161 @@
-// Placeholder for approval/reject actions handler.
-export {};
+import type { BlockAction, SlackActionMiddlewareArgs } from '@slack/bolt';
+import type { Workflow } from '@mastra/core/workflows';
+
+import { getSlackMetadataRepository } from '../../db/client';
+import { getMastra } from '../../mastra';
+import { streamWorkflow } from './streaming-handler';
+import { getChatStreamClient, type SlackClientWithChat } from '../utils/chat-stream';
+import { logger } from '../../logger';
+
+type WorkflowRunInstance = Awaited<ReturnType<Workflow['createRunAsync']>>;
+
+export const handleApproveAction = async ({
+  ack,
+  body,
+  client,
+}: SlackActionMiddlewareArgs<BlockAction> & { client: SlackClientWithChat }) => {
+  await ack();
+  const chat = getChatStreamClient(client);
+
+  try {
+    const action = body.actions[0];
+    if (action.type !== 'button') {
+      throw new Error('Invalid action type');
+    }
+    const runId = action.value;
+    if (!runId) throw new Error('workflow run identifier is missing');
+    logger.info({ runId, userId: body.user.id }, 'Approve button clicked');
+
+    const repo = await getSlackMetadataRepository();
+    const metadata = await repo.getByRunId(runId);
+    if (!metadata) throw new Error('Slackメタデータが見つかりませんでした');
+    if (!metadata.messageTs) throw new Error('SlackメッセージのTSが見つかりませんでした');
+    const approvalMessageTs = metadata.approvalMessageTs ?? metadata.messageTs;
+
+    const mastra = await getMastra();
+    const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow & {
+      getRunAsync: (id: string) => Promise<WorkflowRunInstance>;
+    };
+    const run = await workflow.getRunAsync(runId);
+
+    await chat.update({
+      channel: metadata.channelId,
+      ts: approvalMessageTs,
+      text: '✅ 承認されました。本調査を開始します...',
+      blocks: [],
+    });
+
+    const streamResponse = await chat.startStream({
+      channel: metadata.channelId,
+      thread_ts: metadata.messageTs,
+      recipient_team_id: body.team?.id,
+      recipient_user_id: metadata.requester,
+    });
+
+    const streamTs = streamResponse.ts;
+    if (!streamTs) {
+      throw new Error('Slack APIからstream_tsが返却されませんでした');
+    }
+
+    await repo.updateThreadTs(runId, streamTs);
+
+    streamWorkflow(
+      run,
+      { channelId: metadata.channelId, userId: metadata.requester },
+      { parentTs: metadata.messageTs, streamTs },
+      client,
+      repo,
+      {
+        resume: {
+          step: 'approval-step',
+          resumeData: {
+            approved: true,
+            approver: body.user.id,
+          },
+        },
+      },
+    ).catch((streamError) => {
+      logger.error({ err: streamError, runId }, 'Failed to resume workflow after approval');
+    });
+  } catch (unknownError) {
+    const error = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    logger.error({ err: error }, 'Failed to process approve action');
+    const channel = body.channel?.id;
+    if (channel) {
+      await chat.postEphemeral({
+        channel,
+        user: body.user.id,
+        text: `❌ 承認処理に失敗しました: ${error.message}`,
+      });
+    }
+  }
+};
+
+export const handleRejectAction = async ({
+  ack,
+  body,
+  client,
+}: SlackActionMiddlewareArgs<BlockAction> & { client: SlackClientWithChat }) => {
+  await ack();
+  const chat = getChatStreamClient(client);
+
+  try {
+    const action = body.actions[0];
+    if (action.type !== 'button') {
+      throw new Error('Invalid action type');
+    }
+    const runId = action.value;
+    if (!runId) throw new Error('workflow run identifier is missing');
+    logger.info({ runId, userId: body.user.id }, 'Reject button clicked');
+
+    const repo = await getSlackMetadataRepository();
+    const metadata = await repo.getByRunId(runId);
+    if (!metadata) throw new Error('Slackメタデータが見つかりませんでした');
+    if (!metadata.messageTs) throw new Error('SlackメッセージのTSが見つかりませんでした');
+    const approvalMessageTs = metadata.approvalMessageTs ?? metadata.messageTs;
+
+    const mastra = await getMastra();
+    const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow & {
+      getRunAsync: (id: string) => Promise<WorkflowRunInstance>;
+    };
+    const run = await workflow.getRunAsync(runId);
+
+    await chat.update({
+      channel: metadata.channelId,
+      ts: approvalMessageTs,
+      text: '❌ 差し戻されました。調査は中止されました。',
+      blocks: [],
+    });
+
+    streamWorkflow(
+      run,
+      { channelId: metadata.channelId, userId: metadata.requester },
+      { parentTs: metadata.messageTs, streamTs: undefined },
+      client,
+      repo,
+      {
+        resume: {
+          step: 'approval-step',
+          resumeData: {
+            approved: false,
+            approver: body.user.id,
+            reason: 'rejected by user',
+          },
+        },
+      },
+    ).catch((streamError) => {
+      logger.error({ err: streamError, runId }, 'Failed to handle workflow rejection');
+    });
+  } catch (unknownError) {
+    const error = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    logger.error({ err: error }, 'Failed to process reject action');
+    const channel = body.channel?.id;
+    if (channel) {
+      await chat.postEphemeral({
+        channel,
+        user: body.user.id,
+        text: `❌ 差し戻し処理に失敗しました: ${error.message}`,
+      });
+    }
+  }
+};

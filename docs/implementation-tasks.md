@@ -941,9 +941,9 @@ export const startSlackApp = async (app: App) => {
 ```
 
 **Acceptance Criteria**:
-- [ ] Socket Mode/Events API両方で起動できる
-- [ ] 環境変数で切り替え可能
-- [ ] 起動時にモードがログ出力される
+- [x] Socket Mode/Events API両方で起動できる
+- [x] 環境変数で切り替え可能
+- [x] 起動時にモードがログ出力される
 
 ---
 
@@ -1014,11 +1014,11 @@ export const handleResearchCommand = async ({
 ```
 
 **Acceptance Criteria**:
-- [ ] `/research` コマンドが受信される
-- [ ] Workflowが開始される
-- [ ] slack_metadataに記録される
-- [ ] Slack Chat Streaming APIが開始される
-- [ ] 空のクエリは拒否される
+- [x] `/research` コマンドが受信される
+- [x] Workflowが開始される
+- [x] slack_metadataに記録される
+- [x] Slack Chat Streaming APIが開始される
+- [x] 空のクエリは拒否される
 
 ---
 
@@ -1145,11 +1145,11 @@ export const streamWorkflow = async (
 ```
 
 **Acceptance Criteria**:
-- [ ] streamVNext()が正しく動作する
-- [ ] plan-chunkイベントがストリーミングされる
-- [ ] approvalStep一時停止時にボタンが表示される
-- [ ] workflow完了時にレポートが投稿される
-- [ ] エラーハンドリングが実装されている
+- [x] streamVNext()が正しく動作する
+- [x] plan-chunkイベントがストリーミングされる
+- [x] approvalStep一時停止時にボタンが表示される
+- [x] workflow完了時にレポートが投稿される
+- [x] エラーハンドリングが実装されている
 
 ---
 
@@ -1245,10 +1245,10 @@ export const handleRejectAction = async ({
 ```
 
 **Acceptance Criteria**:
-- [ ] 承認ボタンでworkflowが再開される
-- [ ] 差戻しボタンでworkflowが終了する
-- [ ] ボタンクリック後にメッセージが更新される
-- [ ] 重複クリックが無視される（Mastraのidempotency）
+- [x] 承認ボタンでworkflowが再開される
+- [x] 差戻しボタンでworkflowが終了する
+- [x] ボタンクリック後にメッセージが更新される
+- [x] 重複クリックが無視される（Mastraのidempotency）
 
 ---
 
