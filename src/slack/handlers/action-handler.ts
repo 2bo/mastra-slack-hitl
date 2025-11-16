@@ -7,8 +7,6 @@ import { streamWorkflow } from './streaming-handler';
 import { getChatStreamClient, type SlackClientWithChat } from '../utils/chat-stream';
 import { logger } from '../../logger';
 
-type WorkflowRunInstance = Awaited<ReturnType<Workflow['createRunAsync']>>;
-
 export const handleApproveAction = async ({
   ack,
   body,
@@ -33,10 +31,8 @@ export const handleApproveAction = async ({
     const approvalMessageTs = metadata.approvalMessageTs ?? metadata.messageTs;
 
     const mastra = await getMastra();
-    const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow & {
-      getRunAsync: (id: string) => Promise<WorkflowRunInstance>;
-    };
-    const run = await workflow.getRunAsync(runId);
+    const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow;
+    const run = await workflow.createRunAsync({ runId });
 
     await chat.update({
       channel: metadata.channelId,
@@ -59,6 +55,8 @@ export const handleApproveAction = async ({
 
     await repo.updateThreadTs(runId, streamTs);
 
+    const approvalStepPath = 'research-workflow.approval-step';
+
     streamWorkflow(
       run,
       { channelId: metadata.channelId, userId: metadata.requester },
@@ -67,7 +65,7 @@ export const handleApproveAction = async ({
       repo,
       {
         resume: {
-          step: 'approval-step',
+          step: approvalStepPath,
           resumeData: {
             approved: true,
             approver: body.user.id,
@@ -115,10 +113,8 @@ export const handleRejectAction = async ({
     const approvalMessageTs = metadata.approvalMessageTs ?? metadata.messageTs;
 
     const mastra = await getMastra();
-    const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow & {
-      getRunAsync: (id: string) => Promise<WorkflowRunInstance>;
-    };
-    const run = await workflow.getRunAsync(runId);
+    const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow;
+    const run = await workflow.createRunAsync({ runId });
 
     await chat.update({
       channel: metadata.channelId,
@@ -126,6 +122,8 @@ export const handleRejectAction = async ({
       text: '❌ 差し戻されました。調査は中止されました。',
       blocks: [],
     });
+
+    const approvalStepPath = 'research-workflow.approval-step';
 
     streamWorkflow(
       run,
@@ -135,7 +133,7 @@ export const handleRejectAction = async ({
       repo,
       {
         resume: {
-          step: 'approval-step',
+          step: approvalStepPath,
           resumeData: {
             approved: false,
             approver: body.user.id,

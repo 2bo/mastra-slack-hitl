@@ -46,16 +46,14 @@ type WorkflowRunControls = WorkflowRunInstance & {
   }) => Promise<void>;
 };
 
-const resumeWorkflowRun = async (
-  workflow: Workflow & { getRunAsync: (id: string) => Promise<WorkflowRunInstance> },
-  runId: string,
-): Promise<void> => {
-  const run = (await workflow.getRunAsync(runId)) as WorkflowRunControls;
+const resumeWorkflowRun = async (workflow: Workflow, runId: string): Promise<void> => {
+  const run = (await workflow.createRunAsync({ runId })) as WorkflowRunControls;
   const status = typeof run.getStatus === 'function' ? await run.getStatus() : null;
 
   if (status === 'suspended') {
+    const approvalStepPath = 'research-workflow.approval-step';
     await run.resume({
-      step: 'approval-step',
+      step: approvalStepPath,
       resumeData: {
         approved: false,
         reason: 'timeout',
@@ -78,9 +76,7 @@ export const startDeadlineChecker = (slackClient: SlackClientWithChat): Schedule
       }
 
       const mastra = await getMastra();
-      const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow & {
-        getRunAsync: (id: string) => Promise<WorkflowRunInstance>;
-      };
+      const workflow = mastra.getWorkflow('slack-research-hitl') as Workflow;
 
       for (const approval of expiredApprovals) {
         try {
