@@ -1,0 +1,342 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## プロジェクト概要
+
+Slackから実行できるAI調査ワークフローシステム。AIが生成した調査計画を人間が承認した後、深い調査を実行し、進捗とレポートをリアルタイムでSlackにストリーミング配信する**Human-In-The-Loop (HITL)** システム。
+
+## 開発コマンド
+
+### 開発サーバー起動
+
+```bash
+# Mastra Studioを起動（推奨: ワークフロー/エージェントのテスト用）
+pnpm run dev:mastra
+
+# Slack Appのみを起動
+pnpm run dev:slack
+```
+
+### ビルドとテスト
+
+```bash
+# 型チェック
+pnpm run typecheck
+
+# Lint
+pnpm run lint
+pnpm run lint:fix
+
+# フォーマット
+pnpm run format
+pnpm run format:check
+
+# ビルド
+pnpm run build
+
+# 本番起動
+pnpm run start
+```
+
+### データベース操作
+
+```bash
+# マイグレーション生成
+pnpm run db:generate
+
+# マイグレーション適用
+pnpm run db:migrate
+```
+
+## アーキテクチャ
+
+### コアコンポーネント
+
+#### 1. Mastraワークフロー (`src/mastra/`)
+
+- **メインワークフロー** (`workflows/main-workflow.ts`): `researchWorkflow` → `deliverWorkflow` の順で実行
+- **researchWorkflow**: `planStep` → `approvalStep` → `gatherStep` の3段階
+- **deliverWorkflow**: `generateReportStep` でレポート生成
+
+**重要**: ワークフローは**ネストされたワークフロー構造**。`main-workflow.ts`が2つのサブワークフローを統合。
+
+#### 2. HITL承認フロー (`workflows/steps/approval-step.ts`)
+
+```typescript
+// approvalStepの動作フロー
+if (!resumeData) {
+  // 初回実行: 承認待ちで一時停止
+  return context.suspend({ plan, requestedAt });
+}
+// resume時: 承認/差戻しの結果を返す
+return { approved, approver, reason };
+```
+
+**重要な仕様**:
+- `suspend()`を呼び出すとワークフローが一時停止し、`suspended`状態になる
+- Slackボタンクリック時に`resume()`が呼び出され、ワークフローが再開される
+- `@mastra/core@0.24.0`以上が必須（suspend/resumeの修正が含まれる）
+
+#### 3. Slackストリーミング統合 (`src/slack/`)
+
+**Slack Chat Streaming API**を使用してワークフロー進捗をリアルタイム配信:
+
+- `chat.startStream()`: ストリーミング開始
+- `chat.appendStream()`: 増分テキスト配信
+- `chat.stopStream()`: ストリーミング終了
+
+**スレッド構造**:
+- `parentTs`: 親メッセージのタイムスタンプ（調査開始メッセージ）
+- `streamTs`: ストリーミングメッセージのタイムスタンプ（`thread_ts`として`parentTs`を指定）
+
+#### 4. データベース層 (`src/db/`)
+
+**Drizzle ORM + LibSQL**を使用:
+
+```typescript
+// スキーマ定義（schema.ts）
+export const slackMetadata = sqliteTable('slack_metadata', {
+  runId: text('run_id').primaryKey(),
+  channelId: text('channel_id').notNull(),
+  messageTs: text('message_ts'),      // 親メッセージTS
+  threadTs: text('thread_ts'),        // ストリーミングメッセージTS
+  requester: text('requester').notNull(),
+  deadlineAt: integer('deadline_at').notNull(),
+  // ...
+});
+```
+
+**重要**: `messageTs`（親）と`threadTs`（ストリーミング）を区別すること。
+
+#### 5. エージェント (`src/mastra/agents/`)
+
+- **research-agent**: 調査計画生成 + Tavily MCP検索実行
+- **report-agent**: 最終レポート生成
+
+**Tavily MCP統合** (`src/mcp/tavily-client.ts`):
+```typescript
+const tavilyTools = await tavilyMcpClient.getTools();
+// research-agentに直接登録
+tools: { ...tavilyTools, 'evaluate-result': evaluateResultTool }
+```
+
+### ワークフローの実行フロー
+
+```
+1. /research コマンド受信
+   ↓
+2. mainWorkflow.createRunAsync() でワークフロー開始
+   ↓
+3. planStep: 調査計画生成（ストリーミング）
+   ↓
+4. approvalStep: suspend() で一時停止 → Slackに承認ボタン表示
+   ↓
+5. ユーザーがボタンクリック → resume() で再開
+   ↓
+6. gatherStep: Tavily検索で情報収集
+   ↓
+7. generateReportStep: レポート生成
+   ↓
+8. Slackにレポート投稿
+```
+
+### イベント駆動設計
+
+ワークフローはカスタムイベントを`writer.write()`で送信:
+
+```typescript
+// planStepから
+await writer?.write({ type: 'plan-chunk', chunk });
+
+// gatherStepから
+await writer?.write({ type: 'gather-progress', message, details });
+```
+
+これらのイベントは`streaming-handler.ts`で受信し、Slackにストリーミング配信される。
+
+## 重要な設計パターン
+
+### 1. suspend/resumeパターン
+
+```typescript
+// approvalStep内
+if (!resumeData) {
+  return context.suspend(payload);  // 一時停止
+}
+return processResumeData(resumeData); // 再開時の処理
+```
+
+### 2. ストリーミングハンドラのイベントループ
+
+```typescript
+for await (const event of stream) {
+  if (event.type === 'plan-chunk') { /* ... */ }
+  if (event.type === 'step-end' && event.payload.stepName === 'approval-step') {
+    if (event.payload.status === 'suspended') {
+      // 承認ボタンを表示
+    }
+  }
+  if (event.type === 'workflow-finish') { /* ... */ }
+}
+```
+
+### 3. Slack API呼び出しの型安全性
+
+`chat-stream.ts`で`SlackClientWithChat`型を定義し、Streaming API互換性を確保:
+
+```typescript
+export type SlackClientWithChat = WebClient & {
+  chat: ChatStreamMethods;
+};
+```
+
+### 4. リポジトリパターン
+
+`SlackMetadataRepository`でデータアクセスを抽象化:
+
+```typescript
+await repo.create({ runId, channelId, requester, deadlineAt });
+await repo.updateMessageTs(runId, messageTs);
+await repo.getExpiredApprovals(now);
+```
+
+## 環境変数
+
+### 開発環境（Socket Mode）
+
+```bash
+SLACK_SOCKET_MODE=true
+SLACK_APP_TOKEN=xapp-xxx       # App-Level Token
+SLACK_BOT_TOKEN=xoxb-xxx
+SLACK_SIGNING_SECRET=xxx
+DATABASE_URL=file:./data/mastra.db
+OPENAI_API_KEY=sk-xxx
+TAVILY_API_KEY=tvly-xxx
+LOG_LEVEL=debug
+```
+
+### 本番環境（Events API）
+
+```bash
+SLACK_SOCKET_MODE=false
+SLACK_BOT_TOKEN=xoxb-xxx
+SLACK_SIGNING_SECRET=xxx
+PORT=3000
+DATABASE_URL=file:/var/lib/mastra/mastra.db
+# ... その他同じ
+```
+
+## デバッグ方法
+
+### ワークフロー状態の確認
+
+```typescript
+const run = await workflow.getRunAsync(runId);
+const status = await run.getStatus(); // 'running' | 'suspended' | 'success' | 'failed'
+```
+
+### ログレベルの調整
+
+`LOG_LEVEL=debug`でMastraの内部ログを確認可能。
+
+### Mastra Studioでのテスト
+
+`pnpm run dev:mastra`でブラウザ上でワークフロー/エージェントをテスト可能。Slack統合前にロジックを検証できる。
+
+## よくある問題と解決策
+
+### 1. suspend/resumeが動作しない
+
+- `@mastra/core`のバージョンが0.24.0以上であることを確認
+- `suspendSchema`と`resumeSchema`が正しく定義されているか確認
+- `resume()`時に`step`パラメータが正しく指定されているか確認
+
+### 2. Slack Streaming APIエラー
+
+- `recipient_team_id`と`recipient_user_id`が必須パラメータ
+- `thread_ts`には親メッセージの`ts`を指定（ストリーミングメッセージのtsではない）
+
+### 3. データベースマイグレーションエラー
+
+```bash
+# データベースを再作成
+rm -rf data/mastra.db
+pnpm run db:migrate
+```
+
+### 4. Tavily MCP接続エラー
+
+- `TAVILY_API_KEY`が設定されているか確認
+- `tavily-mcp`パッケージがインストールされているか確認
+
+## コード変更時の注意点
+
+### ワークフロースキーマ変更時
+
+```typescript
+// schemas.ts でZodスキーマを定義
+export const workflowContextSchema = z.object({
+  query: z.string(),
+  channelId: z.string(),
+  userId: z.string(),
+});
+
+// 各ステップのinputSchema/outputSchemaを更新
+```
+
+### 新しいエージェント追加時
+
+```typescript
+// 1. agents/内にエージェント定義
+export const newAgent = new Agent({ id: 'new-agent', ... });
+
+// 2. mastra/index.ts に登録
+agents: {
+  'research-agent': researchAgent,
+  'report-agent': reportAgent,
+  'new-agent': newAgent,  // 追加
+}
+```
+
+### 新しいスラッシュコマンド追加時
+
+```typescript
+// 1. handlers/内にハンドラ作成
+export const handleNewCommand = async ({ command, ack, client }) => { ... };
+
+// 2. index.ts で登録
+app.command('/new-command', handleNewCommand);
+```
+
+## パフォーマンス最適化
+
+### 1. ストリーミングチャンクサイズ
+
+planStepでのテキスト配信は適度なチャンクサイズで送信（Slack API制限を考慮）。
+
+### 2. データベースクエリ
+
+`getExpiredApprovals()`は`deadlineAt`にインデックスを使用（`idx_slack_metadata_deadline`）。
+
+### 3. 期限チェックジョブの頻度
+
+デフォルトは15分毎（`*/15 * * * *`）。調整可能だが、Slack APIレート制限に注意。
+
+## セキュリティ考慮事項
+
+- `.env`ファイルは`.gitignore`に含める
+- SlackトークンとAPIキーはローテーション可能にする
+- 本番環境では`DATABASE_URL`を環境変数で管理し、ファイルパスをハードコードしない
+
+## テストシナリオ
+
+実装タスク（`docs/implementation-tasks.md`）のPhase 7に詳細なE2Eテストシナリオを記載。
+
+## 参考資料
+
+- [Mastra Documentation](https://mastra.ai/docs)
+- [Mastra Suspend & Resume](https://mastra.ai/docs/workflows/suspend-and-resume)
+- [Slack Bolt for JavaScript](https://slack.dev/bolt-js)
+- [Slack Chat Streaming API](https://docs.slack.dev/changelog/2025/10/7/chat-streaming/)
+- [Drizzle ORM](https://orm.drizzle.team/)
