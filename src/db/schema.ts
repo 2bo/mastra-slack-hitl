@@ -18,6 +18,7 @@ export const slackMetadata = sqliteTable(
     approvalMessageTs: text('approval_message_ts'),
     requester: text('requester').notNull(),
     deadlineAt: integer('deadline_at').notNull(),
+    timeoutNotifiedAt: integer('timeout_notified_at'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
   },

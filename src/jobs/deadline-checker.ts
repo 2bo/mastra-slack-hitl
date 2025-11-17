@@ -69,7 +69,7 @@ export const startDeadlineChecker = (slackClient: SlackClientWithChat): Schedule
     logger.debug('Running deadline checker...');
     try {
       const repo = await getSlackMetadataRepository();
-      const expiredApprovals = await repo.getExpiredApprovals();
+      const expiredApprovals = await repo.getUnnotifiedExpiredApprovals();
       if (!expiredApprovals.length) {
         logger.debug('No expired approvals found');
         return;
@@ -80,9 +80,9 @@ export const startDeadlineChecker = (slackClient: SlackClientWithChat): Schedule
 
       for (const approval of expiredApprovals) {
         try {
+          await repo.markTimeoutNotified(approval.runId);
           await notifyTimeout(chat, approval);
           await resumeWorkflowRun(workflow, approval.runId);
-          await repo.deleteByRunId(approval.runId);
           logger.info({ runId: approval.runId }, 'Expired approval processed');
         } catch (error) {
           logger.error({ error, runId: approval.runId }, 'Failed to process expired approval');

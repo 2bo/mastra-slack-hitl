@@ -1,4 +1,4 @@
-import { asc, eq, lt } from 'drizzle-orm';
+import { and, asc, eq, isNull, lt } from 'drizzle-orm';
 
 import { type SQLiteDb } from '../connection';
 import { slackMetadata, type SlackMetadataInsert, type SlackMetadataSelect } from '../schema';
@@ -89,6 +89,25 @@ export class SlackMetadataRepository {
         .from(slackMetadata)
         .where(lt(slackMetadata.deadlineAt, now))
         .orderBy(asc(slackMetadata.deadlineAt)),
+    );
+  }
+
+  async getUnnotifiedExpiredApprovals(now = Date.now()): Promise<SlackMetadataSelect[]> {
+    return this.executeWithRetry(() =>
+      this.db
+        .select()
+        .from(slackMetadata)
+        .where(and(lt(slackMetadata.deadlineAt, now), isNull(slackMetadata.timeoutNotifiedAt)))
+        .orderBy(asc(slackMetadata.deadlineAt)),
+    );
+  }
+
+  async markTimeoutNotified(runId: string, notifiedAt = Date.now()): Promise<void> {
+    await this.executeWithRetry(() =>
+      this.db
+        .update(slackMetadata)
+        .set({ timeoutNotifiedAt: notifiedAt, updatedAt: Date.now() })
+        .where(eq(slackMetadata.runId, runId)),
     );
   }
 

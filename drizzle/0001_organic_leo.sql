@@ -1,0 +1,1 @@
+ALTER TABLE `slack_metadata` ADD `timeout_notified_at` integer;
