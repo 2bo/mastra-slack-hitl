@@ -8,3 +8,7 @@ data/mastra.db
 !.env*.example
 *.db
 *.db-*
+
+# LangWatch
+langwatch-data/
+.langwatch/

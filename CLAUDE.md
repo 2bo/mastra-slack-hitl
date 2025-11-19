@@ -16,6 +16,10 @@ pnpm run dev:mastra
 
 # Slack Appのみを起動
 pnpm run dev:slack
+
+# LangWatch（オブザーバビリティプラットフォーム）を起動
+docker compose up -d --wait
+# ダッシュボード: http://localhost:5560
 ```
 
 ### ビルドとテスト
@@ -145,6 +149,34 @@ const tavilyTools = await tavilyMcpClient.getTools();
 tools: { ...tavilyTools, 'evaluate-result': evaluateResultTool }
 ```
 
+#### 6. LangWatchオブザーバビリティ (`src/observability/`) - オプション
+
+**LangWatch**を使用してワークフロー全体をトレース・評価する最小限の統合。
+
+- **setup.ts**: LangWatch初期化
+- **tracers.ts**: シンプルなトレーサー（`traceWorkflow`ヘルパー関数のみ）
+- **evaluators.ts**: レポート品質評価（完全性、関連性、読みやすさ）
+
+**トレーシング対象（3箇所のみ）**:
+```
+1. slack-research-command (research-handler.ts)
+   └─ Slackコマンド受信〜完了
+
+2. main-workflow (main-workflow.ts)
+   └─ ワークフロー全体の実行
+
+3. generate-report-step (generate-report-step.ts)
+   └─ レポート生成 + 品質評価
+```
+
+**評価機能**:
+- レポート品質の自動評価（0.0〜1.0スコア）
+- GPT-4o-miniを使用した評価理由の生成
+
+**ダッシュボード**: http://localhost:5560 でトレース・評価結果を可視化
+
+**重要**: DBスキーマ変更なし、suspend/resumeのスパン継続なし。詳細は `docs/langwatch-integration.md` を参照。
+
 ### ワークフローの実行フロー
 
 ```
@@ -249,14 +281,27 @@ await feedbackRepo.getByRunId(runId);
 ### 開発環境（Socket Mode）
 
 ```bash
+# Slack設定
 SLACK_SOCKET_MODE=true
 SLACK_APP_TOKEN=xapp-xxx       # App-Level Token
 SLACK_BOT_TOKEN=xoxb-xxx
 SLACK_SIGNING_SECRET=xxx
+
+# データベース
 DATABASE_URL=file:./data/mastra.db
+
+# AI/MCP
 OPENAI_API_KEY=sk-xxx
 TAVILY_API_KEY=tvly-xxx
+
+# ログ
 LOG_LEVEL=debug
+
+# LangWatch（オプション）
+LANGWATCH_API_KEY=sk-lw-xxx    # http://localhost:5560 でサインアップ後に取得
+LANGWATCH_ENDPOINT=http://localhost:5560
+LANGWATCH_ENABLED=true
+LANGWATCH_EVALUATION_MODEL=gpt-4o-mini  # 評価用モデル（デフォルト: gpt-4o-mini）
 ```
 
 ### 本番環境（Events API）
@@ -286,6 +331,28 @@ const status = await run.getStatus(); // 'running' | 'suspended' | 'success' | '
 ### Mastra Studioでのテスト
 
 `pnpm run dev:mastra`でブラウザ上でワークフロー/エージェントをテスト可能。Slack統合前にロジックを検証できる。
+
+### LangWatchダッシュボードでのトレース確認
+
+`docker compose up -d --wait`でLangWatchを起動後、http://localhost:5560 でアクセス。
+
+**主要機能**:
+- **Traces**: 全ワークフロー実行の一覧とフィルタリング
+- **Trace Details**: 各ステップのスパンツリー、タイムライン、イベント
+- **Evaluations**: レポート品質スコアと評価理由
+- **Analytics**: 実行時間、エラー率、承認率の統計
+
+**検索クエリ例**:
+```
+# エラーが発生したトレース
+status = "error"
+
+# 実行時間が30秒以上
+duration > 30000
+
+# 品質スコアが低いレポート
+evaluation.overall_score < 0.6
+```
 
 ## よくある問題と解決策
 
@@ -403,8 +470,17 @@ planStepでのテキスト配信は適度なチャンクサイズで送信（Sla
 
 ## 参考資料
 
+### コアフレームワーク
 - [Mastra Documentation](https://mastra.ai/docs)
 - [Mastra Suspend & Resume](https://mastra.ai/docs/workflows/suspend-and-resume)
 - [Slack Bolt for JavaScript](https://slack.dev/bolt-js)
 - [Slack Chat Streaming API](https://docs.slack.dev/changelog/2025/10/7/chat-streaming/)
 - [Drizzle ORM](https://orm.drizzle.team/)
+
+### オブザーバビリティ
+- [LangWatch Documentation](https://docs.langwatch.ai/)
+- [LangWatch GitHub](https://github.com/langwatch/langwatch)
+- [OpenTelemetry for JavaScript](https://opentelemetry.io/docs/languages/js/)
+
+### プロジェクト固有ドキュメント
+- `docs/langwatch-integration.md`: LangWatch統合の詳細実装計画

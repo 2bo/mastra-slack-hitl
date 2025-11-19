@@ -1,0 +1,94 @@
+# LangWatch Observability Platform
+# ダッシュボード: http://localhost:5560
+
+services:
+  langwatch:
+    image: langwatch/langwatch:latest
+    ports:
+      - "5560:5560"
+    environment:
+      NODE_ENV: development
+      BASE_HOST: http://localhost:5560
+      NEXTAUTH_URL: http://localhost:5560
+      NEXTAUTH_PROVIDER: email
+      NEXTAUTH_SECRET: local-dev-secret
+      API_TOKEN_JWT_SECRET: local-jwt-secret
+      DATABASE_URL: postgresql://prisma:prisma@postgres:5432/mydb?schema=mydb
+      ELASTICSEARCH_NODE_URL: http://opensearch:9200
+      IS_OPENSEARCH: "true"
+      REDIS_URL: redis://redis:6379
+      LANGWATCH_NLP_SERVICE: http://langwatch_nlp:5561
+      LANGEVALS_ENDPOINT: http://langevals:5562
+      DISABLE_PII_REDACTION: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - langwatch
+
+  langwatch_nlp:
+    image: langwatch/langwatch_nlp:latest
+    ports:
+      - "5561:5561"
+    networks:
+      - langwatch
+
+  langevals:
+    image: langwatch/langevals:latest
+    ports:
+      - "5562:5562"
+    networks:
+      - langwatch
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: prisma
+      POSTGRES_PASSWORD: prisma
+      POSTGRES_DB: mydb
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prisma"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - langwatch
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - langwatch
+
+  opensearch:
+    image: langwatch/opensearch-lite:latest
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: "-Xms128m -Xmx256m"
+      DISABLE_SECURITY_PLUGIN: "true"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - langwatch
+
+networks:
+  langwatch:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  opensearch-data:
