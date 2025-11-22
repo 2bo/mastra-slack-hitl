@@ -3,6 +3,10 @@
     "mastra": {
       "command": "npx",
       "args": ["-y", "@mastra/mcp-docs-server"]
+    },
+    "langwatch": {
+      "command": "npx",
+      "args": ["-y", "@langwatch/mcp-server"]
     }
   }
 }
