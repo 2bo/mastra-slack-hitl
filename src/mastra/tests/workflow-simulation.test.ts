@@ -20,81 +20,34 @@ import { mastra } from '../index';
 const mainWorkflowAdapter: scenario.AgentAdapter = {
   role: scenario.AgentRole.AGENT,
   call: async (input) => {
-    // 最後のユーザーメッセージからクエリを取得
-    const lastMessage = input.messages[input.messages.length - 1];
-    const content = lastMessage.content;
-    const query = typeof content === 'string' ? content : 'デフォルトクエリ';
+    const lastMessage = input.messages.at(-1);
+    const query =
+      typeof lastMessage?.content === 'string' ? lastMessage.content : 'デフォルトクエリ';
 
-    // ワークフロー実行用の入力データ
-    const workflowInput = {
-      query,
-      channelId: 'test-channel',
-      userId: 'test-user',
-    };
-
-    // Mastraインスタンスからワークフローを取得して実行
     const workflow = mastra.getWorkflow('slack-research-hitl');
     const run = await workflow.createRunAsync();
-    const result = await run.start({ inputData: workflowInput });
+
+    let result = await run.start({
+      inputData: { query, channelId: 'test-channel', userId: 'test-user' },
+    });
 
     // suspendされた場合は自動承認してresume
     if (result.status === 'suspended') {
-      // @ts-expect-error - suspended property exists in runtime
-      const suspended = result.suspended as string[] | undefined;
+      const stepId = result.suspended.at(0);
+      if (!stepId) throw new Error('Suspended state missing step ID');
 
-      if (!suspended || suspended.length === 0) {
-        return [
-          {
-            role: 'assistant' as const,
-            content: 'エラー: suspendされたステップが見つかりません',
-          },
-        ];
-      }
-
-      const stepToResume = suspended[0]; // 最初のsuspendedステップ
-
-      const resumeResult = await run.resume({
-        step: stepToResume,
-        resumeData: {
-          approved: true,
-          approver: 'test-approver',
-        },
+      result = await run.resume({
+        step: stepId,
+        resumeData: { approved: true, approver: 'test-approver' },
       });
-
-      if (resumeResult.status === 'success') {
-        const report = (resumeResult.result as { report: string; approved: boolean }).report;
-        return [
-          {
-            role: 'assistant' as const,
-            content: report,
-          },
-        ];
-      }
-
-      return [
-        {
-          role: 'assistant' as const,
-          content: `エラー: resume後のステータスが異常 - ${resumeResult.status}`,
-        },
-      ];
-    } else if (result.status === 'success') {
-      // suspendなしで成功した場合
-      const report = (result.result as { report: string; approved: boolean }).report;
-      return [
-        {
-          role: 'assistant' as const,
-          content: report,
-        },
-      ];
-    } else {
-      // その他のステータス（failed等）
-      return [
-        {
-          role: 'assistant' as const,
-          content: `エラー: ワークフローが失敗しました - ${result.status}`,
-        },
-      ];
     }
+
+    if (result.status !== 'success') {
+      throw new Error(`Workflow execution failed: ${result.status}`);
+    }
+
+    const report = (result.result as { report: string }).report;
+    return [{ role: 'assistant', content: report }];
   },
 };
 
@@ -108,7 +61,7 @@ describe('mainWorkflow - シミュレーションテスト', () => {
       agents: [
         mainWorkflowAdapter,
         scenario.userSimulatorAgent({
-          model: openai('gpt-4o'),
+          model: openai('gpt-4.1-mini'),
           systemPrompt: `
 あなたはテスターとして調査を依頼します。
 - シンプルで明確な調査依頼を日本語で行う。
