@@ -364,7 +364,7 @@ export const streamWorkflow = async (
 
     if (workflowResult.status === 'success') {
       await stopSlackStream();
-      const workflowOutput = workflowResult.result ?? {};
+      const workflowOutput = workflowResult.result;
       const wasApproved =
         typeof workflowOutput.approved === 'boolean' ? workflowOutput.approved : true;
 

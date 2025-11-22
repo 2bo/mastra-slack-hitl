@@ -25,22 +25,20 @@ export const initDatabase = async (): Promise<DatabaseConnections> => {
     return cachedConnections;
   }
 
-  if (!initializingPromise) {
-    initializingPromise = (async () => {
-      const config = buildConnectionConfig();
-      ensureFileDirectory(config.url);
+  initializingPromise ??= (async () => {
+    const config = buildConnectionConfig();
+    ensureFileDirectory(config.url);
 
-      const client = createClient(config);
+    const client = createClient(config);
 
-      if (isLocalDatabase(config.url)) {
-        await applyPragmas(client);
-      }
+    if (isLocalDatabase(config.url)) {
+      await applyPragmas(client);
+    }
 
-      const db = drizzle(client, { schema });
-      cachedConnections = { client, db };
-      return cachedConnections;
-    })();
-  }
+    const db = drizzle(client, { schema });
+    cachedConnections = { client, db };
+    return cachedConnections;
+  })();
 
   return initializingPromise;
 };

@@ -62,9 +62,7 @@ const createMastra = async () => {
 };
 
 export const initMastra = async () => {
-  if (!mastraInstance) {
-    mastraInstance = await createMastra();
-  }
+  mastraInstance ??= await createMastra();
 
   return mastraInstance;
 };

@@ -23,7 +23,7 @@ export const approvalStep = createStep({
       return context.suspend({
         plan: inputData.plan,
         requestedAt: Date.now(),
-      });
+      }) as Promise<never>;
     }
 
     return {
